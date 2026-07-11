@@ -77,7 +77,16 @@ export default function DriverDashboard() {
 
   const handleTripStatus = async (tripId, status) => {
     try {
-      await tripsApi.updateStatus(tripId, status === 'TRIP_STARTED' ? 'en_route' : status);
+      if (status === 'CLIENT_DROPPED') {
+        // Backend Trip.status has no 'CLIENT_DROPPED' value — dropping the
+        // patient is what actually completes the trip (fare calc + bill +
+        // income ledger + vehicle/driver release), so this maps to /complete
+        // instead of /status. distanceKm/additionalCharges are optional —
+        // the backend falls back to the trip's stored distance when omitted.
+        await tripsApi.complete(tripId, {});
+      } else {
+        await tripsApi.updateStatus(tripId, status === 'TRIP_STARTED' ? 'en_route' : status);
+      }
       await logActivity(status, { tripId });
       Alert.alert('✅ Success', `${status}!`);
       loadTrips();
