@@ -299,7 +299,7 @@ export default function DriverDashboard({ navigation }) {
         {/* Booking Trip Button — identical text/action, restyled card */}
         <TouchableOpacity style={[styles.bigBtn, { backgroundColor: '#3b82f6' }]} onPress={() => navigation.navigate('BookingTrip')}>
           <Text style={styles.bigBtnTxt}>🚑 Booking Trip</Text>
-          <Text style={styles.bigBtnSub}>Patient pickup/drop trip ಶುರು ಮಾಡಿ</Text>
+          <Text style={styles.bigBtnSub}>Patient pickup/drop trip ಶುರು ಮಾಡಿ ✅ OTA TEST</Text>
         </TouchableOpacity>
 
         {/* Active Trip — identical logic/buttons, restyled card */}
