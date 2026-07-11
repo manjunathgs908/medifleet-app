@@ -44,3 +44,20 @@ export const advanceApi = {
   request: (data) => api.post('/advances', data),
   myAdvances: () => api.get('/advances/my'),
 };
+
+// Phase 4 — Employee ID + PIN driver login (backend Phase 2), additive
+// alongside authApi above; the existing phone+password flow is untouched.
+export const driverAuthApi = {
+  loginWithPin: (employeeId, pin, deviceId) => api.post('/driver-auth/login', { employeeId, pin, deviceId }),
+  changePin: (oldPin, newPin) => api.post('/driver-auth/change-pin', { oldPin, newPin }),
+};
+
+// Phase 4 — Assignment/Shift duty management (backend Phase 3).
+export const assignmentsApi = {
+  startDuty: (ambulanceId, deviceId, lat, lng) => api.post('/assignments/start-duty', { ambulanceId, deviceId, lat, lng }),
+  breakDuty: () => api.post('/assignments/break'),
+  resumeDuty: () => api.post('/assignments/resume'),
+  endDuty: (lat, lng) => api.post('/assignments/end-duty', { lat, lng }),
+  getMyActive: () => api.get('/assignments/my-active'),
+  getMyHistory: (params) => api.get('/assignments/my-history', { params }),
+};
