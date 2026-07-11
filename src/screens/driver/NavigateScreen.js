@@ -1,22 +1,58 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
+import * as Location from 'expo-location';
 import { tripsApi } from '../../api/client';
 
 /**
- * Post-accept "en route to pickup" screen (Phase 5).
+ * Post-accept "en route to pickup" screen (Phase 5, map added in Phase 8).
  *
- * LIMITATION: react-native-maps is NOT a dependency of this project
- * (checked package.json — no map library present anywhere). Per
- * instructions this phase does not add a new native map library, since
- * that would require a new native build (not just an eas update). This
- * screen shows a static address card + "Reached Pickup" action instead
- * of an actual map. Flagging clearly rather than guessing: adding a real
- * map here is a follow-up phase that needs `npx expo install
- * react-native-maps` and a fresh native/EAS build.
+ * Shows the pickup location (Trip.pickup.lat/lng — models/index.js) and a
+ * single fix of the driver's own current location (expo-location, no
+ * continuous tracking in this pass — that's a bigger feature). No
+ * polyline: medifleet-app has no src/utils route-fetching helper (checked,
+ * confirmed absent), and this project has no Directions-API integration
+ * to reuse, so drawing a real route line was skipped per instructions
+ * rather than approximated.
+ *
+ * If trip.pickup has no lat/lng (older/manually-entered trips), falls
+ * back to the original address-only card instead of rendering a map with
+ * no pickup marker.
  */
 export default function NavigateScreen({ navigation, route }) {
   const { trip } = route.params || {};
   const [loading, setLoading] = useState(false);
+
+  const pickupCoord = (trip?.pickup?.lat != null && trip?.pickup?.lng != null)
+    ? { latitude: trip.pickup.lat, longitude: trip.pickup.lng }
+    : null;
+
+  const [driverCoord, setDriverCoord] = useState(null);
+  const mapRef = useRef(null);
+
+  // One-shot location fix on mount — not continuous tracking.
+  useEffect(() => {
+    if (!pickupCoord) return; // nothing to show a driver marker relative to
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const loc = await Location.getCurrentPositionAsync({});
+        setDriverCoord({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      } catch {
+        // GPS unavailable — the map still shows the pickup marker alone.
+      }
+    })();
+  }, [pickupCoord?.latitude, pickupCoord?.longitude]);
+
+  // Once both points are known, frame the map to show both.
+  useEffect(() => {
+    if (!pickupCoord || !driverCoord || !mapRef.current) return;
+    mapRef.current.fitToCoordinates([pickupCoord, driverCoord], {
+      edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
+      animated: true,
+    });
+  }, [pickupCoord, driverCoord]);
 
   async function handleReachedPickup() {
     setLoading(true);
@@ -43,11 +79,38 @@ export default function NavigateScreen({ navigation, route }) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.mapPlaceholder}>
-        <Text style={styles.mapIcon}>📍</Text>
-        <Text style={styles.mapPlaceholderText}>Map view not available in this build</Text>
-        <Text style={styles.mapPlaceholderSub}>react-native-maps is not installed — see pickup address below</Text>
-      </View>
+      {pickupCoord ? (
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          initialRegion={{
+            latitude: pickupCoord.latitude,
+            longitude: pickupCoord.longitude,
+            latitudeDelta: 0.02,
+            longitudeDelta: 0.02,
+          }}
+        >
+          <Marker
+            coordinate={pickupCoord}
+            title="Pickup"
+            description={trip?.pickup?.address}
+            pinColor="#ef4444"
+          />
+          {driverCoord && (
+            <Marker
+              coordinate={driverCoord}
+              title="Your location"
+              pinColor="#10b981"
+            />
+          )}
+        </MapView>
+      ) : (
+        <View style={styles.mapPlaceholder}>
+          <Text style={styles.mapIcon}>📍</Text>
+          <Text style={styles.mapPlaceholderText}>No pickup coordinates on this trip</Text>
+          <Text style={styles.mapPlaceholderSub}>Showing the address below instead</Text>
+        </View>
+      )}
 
       <View style={styles.card}>
         <Text style={styles.label}>Pickup Address</Text>
@@ -69,6 +132,7 @@ export default function NavigateScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0f1e' },
+  map: { height: 280 },
   mapPlaceholder: {
     height: 280,
     backgroundColor: '#111827',
