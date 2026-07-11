@@ -7,7 +7,6 @@ import { useAuth } from '../context/AuthContext';
 
 export default function LoginScreen() {
   const { login } = useAuth();
-  const [role, setRole] = useState('driver');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -19,11 +18,7 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      const user = await login(phone, password);
-      if (user.role !== role) {
-        Alert.alert('Error', `You are not a ${role}. Please select correct role.`);
-        await logout();
-      }
+      await login(phone, password);
     } catch (e) {
       Alert.alert('Error', 'Invalid Phone or Password');
     } finally {
@@ -36,26 +31,6 @@ export default function LoginScreen() {
       <View style={styles.card}>
         <Text style={styles.title}>🚑 MediFleet</Text>
         <Text style={styles.subtitle}>Ambulance CRM</Text>
-
-        <Text style={styles.label}>Select Role</Text>
-        <View style={styles.roleRow}>
-          <TouchableOpacity
-            style={[styles.roleBtn, role === 'driver' && styles.roleBtnActive]}
-            onPress={() => setRole('driver')}
-          >
-            <Text style={[styles.roleBtnText, role === 'driver' && styles.roleBtnTextActive]}>
-              🚑 Driver
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.roleBtn, role === 'telecaller' && styles.roleBtnActive]}
-            onPress={() => setRole('telecaller')}
-          >
-            <Text style={[styles.roleBtnText, role === 'telecaller' && styles.roleBtnTextActive]}>
-              📞 Telecaller
-            </Text>
-          </TouchableOpacity>
-        </View>
 
         <TextInput
           style={styles.input}
@@ -117,37 +92,6 @@ const styles = StyleSheet.create({
     color: '#888',
     textAlign: 'center',
     marginBottom: 24,
-  },
-  label: {
-    color: '#9ca3af',
-    fontSize: 14,
-    marginBottom: 10,
-  },
-  roleRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 20,
-  },
-  roleBtn: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#374151',
-    alignItems: 'center',
-    backgroundColor: '#1f2937',
-  },
-  roleBtnActive: {
-    borderColor: '#10b981',
-    backgroundColor: '#064e3b',
-  },
-  roleBtnText: {
-    color: '#9ca3af',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  roleBtnTextActive: {
-    color: '#10b981',
   },
   input: {
     backgroundColor: '#1f2937',

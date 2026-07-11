@@ -3,11 +3,20 @@
     "name": "medifleet-app",
     "slug": "medifleet-app",
     "version": "1.0.0",
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "url": "https://u.expo.dev/ac9791f2-e3ba-4cc8-ae0c-20d342625903"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera needed for expense bill photos and selfie",
+        "NSLocationWhenInUseUsageDescription": "GPS needed for live tracking",
+        "NSLocationAlwaysUsageDescription": "GPS needed for background tracking"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -15,10 +24,37 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "package": "com.medifleetapp.medifleetapp",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow MediFleet to access camera for bill photos"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow MediFleet to use your location for live tracking"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ac9791f2-e3ba-4cc8-ae0c-20d342625903"
+      }
     }
   }
 }

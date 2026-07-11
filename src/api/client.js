@@ -1,7 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_URL = 'https://medifleet-backend.onrender.com/api';
+const API_URL = 'https://api.savelife.health/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -24,7 +24,6 @@ export const authApi = {
 
 export const tripsApi = {
   getLive: () => api.get('/trips/live'),
-  getAll: (params) => api.get('/trips', { params }),
   updateStatus: (id, status) => api.put(`/trips/${id}/status`, { status }),
   complete: (id, data) => api.put(`/trips/${id}/complete`, data),
 };
@@ -36,4 +35,12 @@ export const attendanceApi = {
 
 export const salaryApi = {
   getPayslip: (dId, m, y) => api.get(`/salary/${dId}/${m}/${y}`),
+};
+// Trip Activity
+export const tripActivityApi = {
+  log: (data) => api.post('/trip-activity/log', data),
+};// Advance
+export const advanceApi = {
+  request: (data) => api.post('/advances', data),
+  myAdvances: () => api.get('/advances/my'),
 };

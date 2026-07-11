@@ -6,7 +6,6 @@ import { ActivityIndicator, View } from 'react-native';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import LoginScreen from './src/screens/LoginScreen';
 import DriverDashboard from './src/screens/driver/DriverDashboard';
-import TelecallerDashboard from './src/screens/telecaller/TelecallerDashboard';
 
 const Stack = createNativeStackNavigator();
 
@@ -33,14 +32,6 @@ function AppNavigator() {
     return (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="DriverDashboard" component={DriverDashboard} />
-      </Stack.Navigator>
-    );
-  }
-
-  if (user.role === 'telecaller') {
-    return (
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="TelecallerDashboard" component={TelecallerDashboard} />
       </Stack.Navigator>
     );
   }
