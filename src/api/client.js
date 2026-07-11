@@ -40,10 +40,6 @@ export const salaryApi = {
 // Trip Activity
 export const tripActivityApi = {
   log: (data) => api.post('/trip-activity/log', data),
-};// Advance
-export const advanceApi = {
-  request: (data) => api.post('/advances', data),
-  myAdvances: () => api.get('/advances/my'),
 };
 
 // Phase 4 — Employee ID + PIN driver login (backend Phase 2), additive

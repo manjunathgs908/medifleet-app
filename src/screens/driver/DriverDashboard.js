@@ -1,38 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Modal, TextInput, Animated } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { tripsApi, tripActivityApi, advanceApi } from '../../api/client';
+import { tripsApi, tripActivityApi } from '../../api/client';
 import * as Location from 'expo-location';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 
 export default function DriverDashboard({ navigation }) {
   const { user, logout } = useAuth();
  const [trips, setTrips] = useState([]);
-  const [dutyStatus, setDutyStatus] = useState('OFF');
-  const [showExpense, setShowExpense] = useState(false);
-  const [showAdvance, setShowAdvance] = useState(false);
-  const [expenseType, setExpenseType] = useState('DIESEL_FILL');
-  const [amount, setAmount] = useState('');
-  const [liters, setLiters] = useState('');
-  const [reason, setReason] = useState('');
-  const [advanceAmount, setAdvanceAmount] = useState('');
-  const [advanceReason, setAdvanceReason] = useState('');
-  const [showCamera, setShowCamera] = useState(false);
-  const [photoUri, setPhotoUri] = useState(null);
-  const [cameraRef, setCameraRef] = useState(null);
-  const [permission, requestPermission] = useCameraPermissions();
-
-  // UI-only: sliding indicator position for the OFF/ON duty pill toggle
-  // below, purely derived FROM the existing dutyStatus state — no new
-  // business meaning, just an animated visual mirror of it.
-  const dutyAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.timing(dutyAnim, {
-      toValue: dutyStatus === 'OFF' ? 0 : 1,
-      duration: 220,
-      useNativeDriver: false,
-    }).start();
-  }, [dutyStatus]);
 
   useEffect(() => { loadTrips(); }, []);
 
@@ -47,8 +21,8 @@ export default function DriverDashboard({ navigation }) {
   // up without a manual refresh. No push notifications yet (a later
   // phase) — plain client-side polling. Gated to trip_driver types only,
   // matching the existing Active Trip card's own isShiftDriver gating
-  // further down (shift_driver types use the 12hr-shift + Booking Trip
-  // flow instead and were never shown Trip-model assignments).
+  // further down (shift_driver types used the removed 12hr-shift flow and
+  // were never shown Trip-model assignments).
   const [acknowledgedTripIds, setAcknowledgedTripIds] = useState([]);
 
   useEffect(() => {
@@ -97,27 +71,6 @@ export default function DriverDashboard({ navigation }) {
     } catch (e) { console.log(e); }
   };
 
-  const handleStartDuty = async () => {
-    if (!permission?.granted) await requestPermission();
-    setShowCamera(true);
-  };
-
-  const takeSelfie = async () => {
-    if (cameraRef) {
-      const photo = await cameraRef.takePictureAsync({ quality: 0.5 });
-      setShowCamera(false);
-      await logActivity('START_12HR_SHIFT', { imageUrl: photo.uri });
-      setDutyStatus('12HR');
-      Alert.alert('✅ Success', 'Duty Started!');
-    }
-  };
-
-  const handleEndDuty = async () => {
-    await logActivity('END_12HR_SHIFT');
-    setDutyStatus('OFF');
-    Alert.alert('✅ Success', 'Duty Ended!');
-  };
-
   const handleTripStatus = async (tripId, status) => {
     try {
       if (status === 'CLIENT_DROPPED') {
@@ -141,98 +94,11 @@ export default function DriverDashboard({ navigation }) {
     } catch (e) { Alert.alert('Error', 'Update failed'); }
   };
 
-  const submitExpense = async () => {
-    if (!amount) { Alert.alert('Error', 'Amount ಹಾಕಿ'); return; }
-    const details = {};
-    if (expenseType === 'DIESEL_FILL') { details.dieselAmount = Number(amount); details.dieselLiters = Number(liters); }
-    if (expenseType === 'FOOD_EXPENSE') details.foodAmount = Number(amount);
-    if (expenseType === 'VEHICLE_REPAIR') { details.repairAmount = Number(amount); details.repairDetails = reason; }
-    if (expenseType === 'POLICE_FINE') { details.policeFineAmount = Number(amount); details.policeFineReason = reason; }
-    await logActivity(expenseType, { ambulanceDetails: details, imageUrl: photoUri });
-    setShowExpense(false);
-    setAmount(''); setLiters(''); setReason(''); setPhotoUri(null);
-    Alert.alert('✅ Success', 'Expense saved!');
-  };
-
-  const submitAdvance = async () => {
-    if (!advanceAmount || !advanceReason) {
-      Alert.alert('Error', 'Amount ಮತ್ತು Reason ಹಾಕಿ'); return;
-    }
-    try {
-      await advanceApi.request({ amount: Number(advanceAmount), reason: advanceReason });
-      setShowAdvance(false);
-      setAdvanceAmount(''); setAdvanceReason('');
-      Alert.alert('✅ Success', 'Advance request sent to Admin!');
-    } catch { Alert.alert('Error', 'Request failed. Try again.'); }
-  };
-
   const myTrip = trips.find(t => t.driver?._id === user?._id || t.driver === user?._id);
   const isShiftDriver = user?.driverType === 'shift_driver' || !user?.driverType;
 
   return (
     <View style={styles.container}>
-      {/* Camera Modal */}
-      <Modal visible={showCamera} animationType="slide">
-        <View style={{ flex: 1 }}>
-          <CameraView style={{ flex: 1 }} facing="front" ref={setCameraRef} />
-          <TouchableOpacity style={styles.captureBtn} onPress={takeSelfie}>
-            <Text style={styles.captureTxt}>📸 Take Selfie</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.captureBtn, { backgroundColor: '#ef4444' }]} onPress={() => setShowCamera(false)}>
-            <Text style={styles.captureTxt}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
-
-      {/* Expense Modal */}
-      <Modal visible={showExpense} animationType="slide" transparent>
-        <View style={styles.modalBg}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>💰 Add Expense</Text>
-            <Text style={styles.label}>ಖರ್ಚಿನ ವಿಧ</Text>
-            <View style={styles.typeRow}>
-              {['DIESEL_FILL','FOOD_EXPENSE','VEHICLE_REPAIR','POLICE_FINE'].map(t => (
-                <TouchableOpacity key={t} style={[styles.typeBtn, expenseType===t && styles.typeBtnActive]} onPress={() => setExpenseType(t)}>
-                  <Text style={styles.typeTxt}>
-                    {t==='DIESEL_FILL'?'⛽':t==='FOOD_EXPENSE'?'🍲':t==='VEHICLE_REPAIR'?'🛠️':'👮'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <TextInput style={styles.input} placeholder="Amount (₹)" keyboardType="numeric" value={amount} onChangeText={setAmount} placeholderTextColor="#888" />
-            {expenseType === 'DIESEL_FILL' && <TextInput style={styles.input} placeholder="Liters" keyboardType="numeric" value={liters} onChangeText={setLiters} placeholderTextColor="#888" />}
-            {(expenseType === 'VEHICLE_REPAIR' || expenseType === 'POLICE_FINE') && <TextInput style={styles.input} placeholder="Details/Reason" value={reason} onChangeText={setReason} placeholderTextColor="#888" />}
-            <TouchableOpacity style={styles.photoBtn} onPress={() => { setShowExpense(false); setShowCamera(true); }}>
-              <Text style={styles.photoBtnTxt}>📸 Take Bill Photo</Text>
-            </TouchableOpacity>
-            {photoUri && <Text style={{ color: '#10b981', marginBottom: 8 }}>✅ Photo ready</Text>}
-            <TouchableOpacity style={styles.submitBtn} onPress={submitExpense}>
-              <Text style={styles.submitTxt}>Submit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowExpense(false)}>
-              <Text style={{ color: '#9ca3af', textAlign: 'center', marginTop: 8 }}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Advance Modal */}
-      <Modal visible={showAdvance} animationType="slide" transparent>
-        <View style={styles.modalBg}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>💵 Request Advance</Text>
-            <TextInput style={styles.input} placeholder="Amount (₹)" keyboardType="numeric" value={advanceAmount} onChangeText={setAdvanceAmount} placeholderTextColor="#888" />
-            <TextInput style={[styles.input, { height: 80 }]} placeholder="Reason ಹಾಕಿ..." value={advanceReason} onChangeText={setAdvanceReason} placeholderTextColor="#888" multiline />
-            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: '#f59e0b' }]} onPress={submitAdvance}>
-              <Text style={styles.submitTxt}>Send Request to Admin</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowAdvance(false)}>
-              <Text style={{ color: '#9ca3af', textAlign: 'center', marginTop: 8 }}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
       {/* ═══ Full-screen "map" background ═══
           react-native-maps is NOT a dependency of this project (checked
           package.json — confirmed absent, same finding as Phase 5's
@@ -246,11 +112,15 @@ export default function DriverDashboard({ navigation }) {
         <View style={styles.mapGlowBottom} />
       </View>
 
-      {/* Top bar — same greeting/role text and logout action as before */}
+      {/* Top bar — same greeting/logout action as before. The role line
+          used to show dutyStatus ("Off Duty"/"On Duty"/"On Trip"); that
+          state no longer exists now that the shift toggle is removed, so
+          this just reads "Driver" — a required consequence of the
+          removal below, not a separate restyling choice. */}
       <View style={styles.topBar}>
         <View>
           <Text style={styles.welcome}>Hello, {user?.name}!</Text>
-          <Text style={styles.role}>Driver • {dutyStatus === 'OFF' ? '🔴 Off Duty' : dutyStatus === '12HR' ? '🟢 On Duty' : '🚑 On Trip'}</Text>
+          <Text style={styles.role}>Driver</Text>
         </View>
         <View style={styles.topBarRight}>
           <TouchableOpacity style={styles.bellBtn} onPress={() => Alert.alert('Notifications', 'Coming soon')}>
@@ -263,36 +133,6 @@ export default function DriverDashboard({ navigation }) {
             <Text style={styles.logoutTxt}>Logout</Text>
           </TouchableOpacity>
         </View>
-      </View>
-
-      {/* OFF DUTY ⟷ ON DUTY sliding pill — tapping it calls the EXACT
-          same handleStartDuty (camera/selfie flow) / handleEndDuty as
-          the old two-separate-buttons layout. Only the trigger/visual
-          changed, not what either function does. */}
-      <View style={styles.dutyPillWrap}>
-        <TouchableOpacity
-          style={styles.dutyPill}
-          activeOpacity={0.85}
-          onPress={dutyStatus === 'OFF' ? handleStartDuty : handleEndDuty}
-        >
-          <Animated.View
-            style={[
-              styles.dutyPillIndicator,
-              {
-                backgroundColor: dutyStatus === 'OFF' ? '#ef4444' : '#10b981',
-                transform: [{
-                  translateX: dutyAnim.interpolate({ inputRange: [0, 1], outputRange: [4, 120] }),
-                }],
-              },
-            ]}
-          />
-          <View style={styles.dutyPillLabel}>
-            <Text style={[styles.dutyPillText, dutyStatus === 'OFF' && styles.dutyPillTextActive]}>OFF DUTY</Text>
-          </View>
-          <View style={styles.dutyPillLabel}>
-            <Text style={[styles.dutyPillText, dutyStatus !== 'OFF' && styles.dutyPillTextActive]}>ON DUTY</Text>
-          </View>
-        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
@@ -324,18 +164,6 @@ export default function DriverDashboard({ navigation }) {
           </View>
         )}
       </ScrollView>
-
-      {/* FAB Buttons — identical triggers, repositioned to clear the new bottom nav bar */}
-      {dutyStatus !== 'OFF' && (
-        <>
-          <TouchableOpacity style={[styles.fab, { bottom: 172, backgroundColor: '#f59e0b' }]} onPress={() => setShowAdvance(true)}>
-            <Text style={styles.fabTxt}>💵 Request Advance</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.fab} onPress={() => setShowExpense(true)}>
-            <Text style={styles.fabTxt}>+ Add Expense</Text>
-          </TouchableOpacity>
-        </>
-      )}
 
       {/* Bottom nav bar — Home is this screen; the rest are non-functional
           placeholder stubs per instructions ("Coming soon"), since only
@@ -387,14 +215,6 @@ const styles = StyleSheet.create({
   logoutBtn: { backgroundColor: '#ef4444', padding: 10, borderRadius: 8 },
   logoutTxt: { color: '#fff', fontWeight: 'bold' },
 
-  // ── OFF DUTY ⟷ ON DUTY sliding pill ─────────────────────────────────
-  dutyPillWrap: { alignItems: 'center', paddingTop: 18, paddingBottom: 10 },
-  dutyPill: { flexDirection: 'row', width: 232, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', padding: 4, overflow: 'hidden' },
-  dutyPillIndicator: { position: 'absolute', top: 4, left: 0, width: 112, height: 40, borderRadius: 20 },
-  dutyPillLabel: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  dutyPillText: { color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: 'bold', letterSpacing: 0.5 },
-  dutyPillTextActive: { color: '#fff' },
-
   // ── Scrollable content over the map background ──────────────────────
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 120 },
@@ -409,10 +229,6 @@ const styles = StyleSheet.create({
   tripBtn: { flex: 1, padding: 12, borderRadius: 8, alignItems: 'center' },
   tripBtnTxt: { color: '#fff', fontWeight: 'bold' },
 
-  // ── FABs (unchanged triggers — repositioned to clear the bottom nav) ─
-  fab: { position: 'absolute', bottom: 106, right: 24, backgroundColor: '#6366f1', paddingHorizontal: 20, paddingVertical: 14, borderRadius: 30, elevation: 5 },
-  fabTxt: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-
   // ── Bottom nav bar ───────────────────────────────────────────────────
   bottomNav: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: '#111827', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)', paddingTop: 10, paddingBottom: 22 },
   navItem: { flex: 1, alignItems: 'center', gap: 3 },
@@ -420,20 +236,4 @@ const styles = StyleSheet.create({
   navIconActive: { fontSize: 20 },
   navLabel: { color: '#6b7280', fontSize: 10, fontWeight: '600' },
   navLabelActive: { color: '#10b981', fontSize: 10, fontWeight: '700' },
-
-  captureBtn: { backgroundColor: '#10b981', padding: 20, alignItems: 'center' },
-  captureTxt: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalBox: { backgroundColor: '#111827', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
-  modalTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold', marginBottom: 16 },
-  label: { color: '#9ca3af', fontSize: 14, marginBottom: 8 },
-  typeRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  typeBtn: { flex: 1, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#374151', alignItems: 'center', backgroundColor: '#1f2937' },
-  typeBtnActive: { borderColor: '#10b981', backgroundColor: '#064e3b' },
-  typeTxt: { fontSize: 24 },
-  input: { backgroundColor: '#1f2937', borderRadius: 10, padding: 14, color: '#fff', fontSize: 16, marginBottom: 12 },
-  photoBtn: { backgroundColor: '#1f2937', padding: 14, borderRadius: 10, alignItems: 'center', marginBottom: 12, borderWidth: 1, borderColor: '#374151' },
-  photoBtnTxt: { color: '#9ca3af', fontSize: 16 },
-  submitBtn: { backgroundColor: '#10b981', padding: 16, borderRadius: 10, alignItems: 'center' },
-  submitTxt: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
 });
