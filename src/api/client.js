@@ -26,6 +26,7 @@ export const tripsApi = {
   getLive: () => api.get('/trips/live'),
   updateStatus: (id, status) => api.put(`/trips/${id}/status`, { status }),
   complete: (id, data) => api.put(`/trips/${id}/complete`, data),
+  decline: (id) => api.put(`/trips/${id}/decline`),
 };
 
 export const attendanceApi = {

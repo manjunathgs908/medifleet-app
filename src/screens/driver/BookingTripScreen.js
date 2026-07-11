@@ -20,7 +20,7 @@ const fmt = (date) => {
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 };
 
-export default function BookingTripScreen({ onBack }) {
+export default function BookingTripScreen({ navigation }) {
   const { user } = useAuth();
   const [trips, setTrips] = useState([]);
   const [activeTrip, setActiveTrip] = useState(null);
@@ -98,7 +98,7 @@ export default function BookingTripScreen({ onBack }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backTxt}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>🚑 Booking Trip</Text>

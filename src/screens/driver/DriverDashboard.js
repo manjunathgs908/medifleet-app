@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Modal, TextInput } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import BookingTripScreen from './BookingTripScreen';
 import { tripsApi, tripActivityApi, advanceApi } from '../../api/client';
 import * as Location from 'expo-location';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 
-export default function DriverDashboard() {
+export default function DriverDashboard({ navigation }) {
   const { user, logout } = useAuth();
  const [trips, setTrips] = useState([]);
-  const [showBookingTrip, setShowBookingTrip] = useState(false);
   const [dutyStatus, setDutyStatus] = useState('OFF');
   const [showExpense, setShowExpense] = useState(false);
   const [showAdvance, setShowAdvance] = useState(false);
@@ -32,6 +30,39 @@ export default function DriverDashboard() {
       setTrips(data.liveTrips || []);
     } catch (e) { console.log(e); }
   };
+
+  // Phase 5 — poll for newly assigned trips so TripAssignedScreen can pop
+  // up without a manual refresh. No push notifications yet (a later
+  // phase) — plain client-side polling. Gated to trip_driver types only,
+  // matching the existing Active Trip card's own isShiftDriver gating
+  // further down (shift_driver types use the 12hr-shift + Booking Trip
+  // flow instead and were never shown Trip-model assignments).
+  const [acknowledgedTripIds, setAcknowledgedTripIds] = useState([]);
+
+  useEffect(() => {
+    if (!user?.driverType || user.driverType === 'shift_driver') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const { data } = await tripsApi.getLive();
+        const liveTrips = data.liveTrips || [];
+        setTrips(liveTrips);
+
+        const isMine = (t) => t.driver?._id === user?._id || t.driver === user?._id;
+        const hasActiveTrip = liveTrips.some(t => isMine(t) && t.status === 'en_route');
+        const newlyAssigned = liveTrips.find(
+          t => isMine(t) && t.status === 'dispatched' && !acknowledgedTripIds.includes(t._id)
+        );
+
+        if (newlyAssigned && !hasActiveTrip) {
+          setAcknowledgedTripIds(prev => [...prev, newlyAssigned._id]);
+          navigation.navigate('TripAssigned', { trip: newlyAssigned });
+        }
+      } catch (e) { console.log(e); }
+    }, 9000);
+
+    return () => clearInterval(interval);
+  }, [user, acknowledgedTripIds]);
 
   const getLocation = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -83,10 +114,15 @@ export default function DriverDashboard() {
         // income ledger + vehicle/driver release), so this maps to /complete
         // instead of /status. distanceKm/additionalCharges are optional —
         // the backend falls back to the trip's stored distance when omitted.
-        await tripsApi.complete(tripId, {});
-      } else {
-        await tripsApi.updateStatus(tripId, status === 'TRIP_STARTED' ? 'en_route' : status);
+        const { data } = await tripsApi.complete(tripId, {});
+        await logActivity(status, { tripId });
+        loadTrips();
+        // Phase 5 — show the completion summary instead of a plain Alert.
+        // The complete() call above and its arguments are unchanged.
+        navigation.navigate('TripSummary', { trip: data.trip, bill: data.bill });
+        return;
       }
+      await tripsApi.updateStatus(tripId, status === 'TRIP_STARTED' ? 'en_route' : status);
       await logActivity(status, { tripId });
       Alert.alert('✅ Success', `${status}!`);
       loadTrips();
@@ -120,8 +156,6 @@ export default function DriverDashboard() {
 
   const myTrip = trips.find(t => t.driver?._id === user?._id || t.driver === user?._id);
   const isShiftDriver = user?.driverType === 'shift_driver' || !user?.driverType;
-
-  if (showBookingTrip) return <BookingTripScreen onBack={() => setShowBookingTrip(false)} />;
 
   return (
     <View style={styles.container}>
@@ -201,7 +235,7 @@ export default function DriverDashboard() {
 
        {/* Booking Trip Button */}
         <View style={{ margin: 16 }}>
-          <TouchableOpacity style={[styles.bigBtn, { backgroundColor: '#3b82f6' }]} onPress={() => setShowBookingTrip(true)}>
+          <TouchableOpacity style={[styles.bigBtn, { backgroundColor: '#3b82f6' }]} onPress={() => navigation.navigate('BookingTrip')}>
             <Text style={styles.bigBtnTxt}>🚑 Booking Trip</Text>
             <Text style={styles.bigBtnSub}>Patient pickup/drop trip ಶುರು ಮಾಡಿ</Text>
           </TouchableOpacity>

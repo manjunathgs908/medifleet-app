@@ -10,6 +10,10 @@ import LoginScreen from './src/screens/LoginScreen';
 import ChangePinScreen from './src/screens/ChangePinScreen';
 import PermissionsScreen from './src/screens/PermissionsScreen';
 import DriverDashboard from './src/screens/driver/DriverDashboard';
+import TripAssignedScreen from './src/screens/driver/TripAssignedScreen';
+import NavigateScreen from './src/screens/driver/NavigateScreen';
+import BookingTripScreen from './src/screens/driver/BookingTripScreen';
+import TripSummaryScreen from './src/screens/driver/TripSummaryScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -63,9 +67,21 @@ function AppNavigator() {
       );
     }
 
+    // Phase 5 — the driver flow is now a real nested stack (DriverDashboard,
+    // TripAssigned, Navigate, BookingTrip, TripSummary) instead of
+    // DriverDashboard hand-rolling BookingTripScreen as a conditionally
+    // rendered component (the exact issue PROJECT_REPORT.md flagged).
     return (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="DriverDashboard" component={DriverDashboard} />
+        <Stack.Screen
+          name="TripAssigned"
+          component={TripAssignedScreen}
+          options={{ presentation: 'modal' }}
+        />
+        <Stack.Screen name="Navigate" component={NavigateScreen} />
+        <Stack.Screen name="BookingTrip" component={BookingTripScreen} />
+        <Stack.Screen name="TripSummary" component={TripSummaryScreen} />
       </Stack.Navigator>
     );
   }
