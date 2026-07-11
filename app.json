@@ -5,7 +5,9 @@
     "version": "1.0.0",
     "runtimeVersion": "1.0.0",
     "updates": {
-      "url": "https://u.expo.dev/ac9791f2-e3ba-4cc8-ae0c-20d342625903"
+      "url": "https://u.expo.dev/ac9791f2-e3ba-4cc8-ae0c-20d342625903",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
     },
     "orientation": "portrait",
     "icon": "./assets/icon.png",

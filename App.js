@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, AppState } from 'react-native';
 import { useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
+import * as Updates from 'expo-updates';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import LoginScreen from './src/screens/LoginScreen';
@@ -93,7 +94,44 @@ function AppNavigator() {
   );
 }
 
+// Applies an OTA update immediately (instead of waiting for the next cold
+// start) whenever one is available — checked once on mount and again every
+// time the app is foregrounded, since eas update was reportedly not always
+// taking effect just from checkAutomatically:"ON_LOAD" + reopening the app.
+async function checkAndApplyUpdate() {
+  // expo-updates has no native module in Expo Go / dev mode — this mirrors
+  // the guard already used in the sibling savelife-app's App.js.
+  //
+  // NOTE: Updates.isEmbeddedLaunch is deliberately NOT used as a skip
+  // condition here. It's only true on the very first launch before any OTA
+  // update has ever been applied — once one update has landed, every
+  // subsequent normal launch runs from the update cache and reports
+  // isEmbeddedLaunch:false. Gating on it would silently stop checking for
+  // updates after the first successful one, which is the exact reliability
+  // bug this change is meant to fix.
+  if (__DEV__) return;
+  try {
+    const { isAvailable } = await Updates.checkForUpdateAsync();
+    if (isAvailable) {
+      await Updates.fetchUpdateAsync();
+      await Updates.reloadAsync(); // reboots the JS bundle — never returns
+    }
+  } catch {
+    // Offline, no update channel configured, etc — fail silently.
+  }
+}
+
 export default function App() {
+  useEffect(() => {
+    checkAndApplyUpdate(); // also cover cold start, not just resume
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') checkAndApplyUpdate();
+    });
+
+    return () => subscription.remove();
+  }, []);
+
   return (
     <AuthProvider>
       <NavigationContainer>
