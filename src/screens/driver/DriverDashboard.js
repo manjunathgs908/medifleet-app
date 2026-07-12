@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView, TextInput } from 'react-native';
 import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useAuth } from '../../context/AuthContext';
@@ -31,6 +31,9 @@ export default function DriverDashboard({ navigation }) {
 
   const [activeTrip, setActiveTrip] = useState(null);
   const [startingTrip, setStartingTrip] = useState(false);
+
+  const [otpInput, setOtpInput] = useState('');
+  const [verifyingOtp, setVerifyingOtp] = useState(false);
 
   // ── Get initial location + start map ──
   useEffect(() => {
@@ -137,6 +140,25 @@ export default function DriverDashboard({ navigation }) {
     }
   };
 
+  const verifyOtp = async () => {
+    if (!activeTrip || otpInput.length !== 4) {
+      Alert.alert('Sari illa', '4-digit OTP haaki.');
+      return;
+    }
+    setVerifyingOtp(true);
+    try {
+      await tripsApi.verifyOtp(activeTrip._id, otpInput);
+      setActiveTrip({ ...activeTrip, pickupVerified: true });
+      setOtpInput('');
+      Alert.alert('✅ Verified', 'Patient pickup confirm aaytu!');
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'OTP sari illa. Wapas try maadi.';
+      Alert.alert('Error', msg);
+    } finally {
+      setVerifyingOtp(false);
+    }
+  };
+
   const recenter = () => {
     if (driverLoc && mapRef.current) {
       mapRef.current.animateToRegion(
@@ -186,7 +208,7 @@ export default function DriverDashboard({ navigation }) {
       </View>
 
       {/* ── Re-center button ── */}
-      <TouchableOpacity style={[styles.recenterBtn, activeTrip && { bottom: 340 }]} onPress={recenter}>
+      <TouchableOpacity style={[styles.recenterBtn, activeTrip && { bottom: 380 }]} onPress={recenter}>
         <Text style={styles.recenterIcon}>📍</Text>
       </TouchableOpacity>
 
@@ -227,7 +249,7 @@ export default function DriverDashboard({ navigation }) {
             <Text style={styles.tripValue}>₹{activeTrip.baseFare || 0}</Text>
           </View>
 
-          {activeTrip.status === 'dispatched' ? (
+          {activeTrip.status === 'dispatched' && (
             <TouchableOpacity
               style={styles.startBtn}
               onPress={startTrip}
@@ -237,9 +259,37 @@ export default function DriverDashboard({ navigation }) {
                 {startingTrip ? 'Starting...' : '▶ Trip Started'}
               </Text>
             </TouchableOpacity>
-          ) : (
+          )}
+
+          {activeTrip.status === 'en_route' && !activeTrip.pickupVerified && (
+            <View style={styles.otpSection}>
+              <Text style={styles.otpLabel}>Patient hattira iruva 4-digit OTP haaki:</Text>
+              <View style={styles.otpRow}>
+                <TextInput
+                  style={styles.otpInput}
+                  value={otpInput}
+                  onChangeText={(t) => setOtpInput(t.replace(/[^0-9]/g, '').slice(0, 4))}
+                  placeholder="0000"
+                  placeholderTextColor="#4b5563"
+                  keyboardType="number-pad"
+                  maxLength={4}
+                />
+                <TouchableOpacity
+                  style={[styles.verifyBtn, otpInput.length !== 4 && styles.verifyBtnDisabled]}
+                  onPress={verifyOtp}
+                  disabled={verifyingOtp || otpInput.length !== 4}
+                >
+                  <Text style={styles.verifyBtnTxt}>
+                    {verifyingOtp ? '...' : 'Verify'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {activeTrip.status === 'en_route' && activeTrip.pickupVerified && (
             <View style={styles.inProgressBadge}>
-              <Text style={styles.inProgressTxt}>En Route — Trip active</Text>
+              <Text style={styles.inProgressTxt}>✅ Pickup Verified — En Route to hospital</Text>
             </View>
           )}
         </ScrollView>
@@ -331,7 +381,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 96,
-    maxHeight: 300,
+    maxHeight: 340,
     backgroundColor: '#111827',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -357,16 +407,44 @@ const styles = StyleSheet.create({
   },
   startBtnTxt: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 
+  // ── OTP section ──
+  otpSection: { marginTop: 12 },
+  otpLabel: { color: '#9ca3af', fontSize: 13, marginBottom: 8 },
+  otpRow: { flexDirection: 'row', gap: 10 },
+  otpInput: {
+    flex: 1,
+    backgroundColor: '#1f2937',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    letterSpacing: 8,
+    textAlign: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  verifyBtn: {
+    backgroundColor: '#3b82f6',
+    borderRadius: 12,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verifyBtnDisabled: { backgroundColor: '#374151' },
+  verifyBtnTxt: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
+
   inProgressBadge: {
-    backgroundColor: 'rgba(59,130,246,0.15)',
+    backgroundColor: 'rgba(16,185,129,0.15)',
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
     marginTop: 10,
     borderWidth: 1,
-    borderColor: 'rgba(59,130,246,0.3)',
+    borderColor: 'rgba(16,185,129,0.3)',
   },
-  inProgressTxt: { color: '#3b82f6', fontSize: 14, fontWeight: '700' },
+  inProgressTxt: { color: '#10b981', fontSize: 14, fontWeight: '700' },
 
   bottomNav: {
     position: 'absolute',

@@ -41,4 +41,5 @@ export const driverAuthApi = {
 export const tripsApi = {
   getAll: (params) => api.get('/trips', { params }),
   updateStatus: (id, status) => api.put(`/trips/${id}/status`, { status }),
+  verifyOtp: (id, otp) => api.put(`/trips/${id}/verify-otp`, { otp }),
 };
