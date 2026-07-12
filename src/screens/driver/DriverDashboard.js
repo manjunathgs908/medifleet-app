@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { useAuth } from '../../context/AuthContext';
-import { driverAuthApi } from '../../api/client';
+import { driverAuthApi, tripsApi } from '../../api/client';
 
 // Default region: Bengaluru (map ge fallback, GPS baruvavarege)
 const BANGALORE = {
@@ -15,16 +15,22 @@ const BANGALORE = {
 
 // Every how many milliseconds the driver's location is sent to the backend
 const LOCATION_UPDATE_INTERVAL_MS = 10000; // 10 seconds
+// Every how many milliseconds we check for a newly assigned trip
+const TRIP_POLL_INTERVAL_MS = 15000; // 15 seconds
 
 export default function DriverDashboard({ navigation }) {
   const { user, logout } = useAuth();
   const mapRef = useRef(null);
   const intervalRef = useRef(null);
+  const tripIntervalRef = useRef(null);
 
   const [region, setRegion] = useState(BANGALORE);
   const [driverLoc, setDriverLoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
+
+  const [activeTrip, setActiveTrip] = useState(null);
+  const [startingTrip, setStartingTrip] = useState(false);
 
   // ── Get initial location + start map ──
   useEffect(() => {
@@ -80,18 +86,14 @@ export default function DriverDashboard({ navigation }) {
         });
         const { latitude, longitude } = loc.coords;
 
-        // Update map marker too, so it stays in sync with what's sent
         setDriverLoc({ latitude, longitude });
 
-        // Send to backend — silently ignore failures (offline, etc.)
-        // so a temporary network blip never crashes the dashboard.
         await driverAuthApi.updateLocation(latitude, longitude, 'available');
       } catch (err) {
         // Silent — next interval tick will retry automatically.
       }
     };
 
-    // First send right away, then repeat every interval
     sendLocation();
     intervalRef.current = setInterval(sendLocation, LOCATION_UPDATE_INTERVAL_MS);
 
@@ -99,6 +101,41 @@ export default function DriverDashboard({ navigation }) {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, []);
+
+  // ── Poll for an assigned trip (dispatched / en_route) ──
+  useEffect(() => {
+    const checkForTrip = async () => {
+      try {
+        const { data } = await tripsApi.getAll({});
+        const trips = data.trips || [];
+        const trip = trips.find(t => t.status === 'dispatched' || t.status === 'en_route');
+        setActiveTrip(trip || null);
+      } catch (err) {
+        // Silent — next interval tick will retry automatically.
+      }
+    };
+
+    checkForTrip();
+    tripIntervalRef.current = setInterval(checkForTrip, TRIP_POLL_INTERVAL_MS);
+
+    return () => {
+      if (tripIntervalRef.current) clearInterval(tripIntervalRef.current);
+    };
+  }, []);
+
+  const startTrip = async () => {
+    if (!activeTrip) return;
+    setStartingTrip(true);
+    try {
+      await tripsApi.updateStatus(activeTrip._id, 'en_route');
+      setActiveTrip({ ...activeTrip, status: 'en_route' });
+      Alert.alert('Trip Started', 'Safe driving! Patient/hospital ge navigate maadi.');
+    } catch (err) {
+      Alert.alert('Error', 'Trip start maadalu aagalilla. Wapas try maadi.');
+    } finally {
+      setStartingTrip(false);
+    }
+  };
 
   const recenter = () => {
     if (driverLoc && mapRef.current) {
@@ -111,6 +148,7 @@ export default function DriverDashboard({ navigation }) {
 
   return (
     <View style={styles.container}>
+      {/* ── Full-screen Map ── */}
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
@@ -134,6 +172,7 @@ export default function DriverDashboard({ navigation }) {
         </View>
       )}
 
+      {/* ── Top bar ── */}
       <View style={styles.topBar}>
         <View style={styles.topBarCard}>
           <View>
@@ -146,10 +185,67 @@ export default function DriverDashboard({ navigation }) {
         </View>
       </View>
 
-      <TouchableOpacity style={styles.recenterBtn} onPress={recenter}>
+      {/* ── Re-center button ── */}
+      <TouchableOpacity style={[styles.recenterBtn, activeTrip && { bottom: 340 }]} onPress={recenter}>
         <Text style={styles.recenterIcon}>📍</Text>
       </TouchableOpacity>
 
+      {/* ── Active Trip Card ── */}
+      {activeTrip && (
+        <ScrollView style={styles.tripCard} contentContainerStyle={styles.tripCardContent}>
+          <View style={styles.tripHeader}>
+            <Text style={styles.tripHeaderTxt}>
+              {activeTrip.status === 'en_route' ? '🚑 Trip In Progress' : '🆕 New Trip Assigned'}
+            </Text>
+          </View>
+
+          <Text style={styles.patientName}>{activeTrip.patientName}</Text>
+          {activeTrip.patientPhone && activeTrip.patientPhone !== 'N/A' && (
+            <Text style={styles.patientPhone}>📞 {activeTrip.patientPhone}</Text>
+          )}
+
+          <View style={styles.tripRow}>
+            <Text style={styles.tripLabel}>📍 Pickup</Text>
+            <Text style={styles.tripValue}>{activeTrip.pickup?.address || '—'}</Text>
+          </View>
+
+          {activeTrip.dropHospital?.name && (
+            <View style={styles.tripRow}>
+              <Text style={styles.tripLabel}>🏥 Drop</Text>
+              <Text style={styles.tripValue}>{activeTrip.dropHospital.name}</Text>
+            </View>
+          )}
+          {!activeTrip.dropHospital?.name && activeTrip.dropAddress && (
+            <View style={styles.tripRow}>
+              <Text style={styles.tripLabel}>🏁 Drop</Text>
+              <Text style={styles.tripValue}>{activeTrip.dropAddress}</Text>
+            </View>
+          )}
+
+          <View style={styles.tripRow}>
+            <Text style={styles.tripLabel}>💰 Fare</Text>
+            <Text style={styles.tripValue}>₹{activeTrip.baseFare || 0}</Text>
+          </View>
+
+          {activeTrip.status === 'dispatched' ? (
+            <TouchableOpacity
+              style={styles.startBtn}
+              onPress={startTrip}
+              disabled={startingTrip}
+            >
+              <Text style={styles.startBtnTxt}>
+                {startingTrip ? 'Starting...' : '▶ Trip Started'}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.inProgressBadge}>
+              <Text style={styles.inProgressTxt}>En Route — Trip active</Text>
+            </View>
+          )}
+        </ScrollView>
+      )}
+
+      {/* ── Bottom nav ── */}
       <View style={styles.bottomNav}>
         <View style={styles.navItem}>
           <Text style={styles.navIconActive}>🏠</Text>
@@ -228,6 +324,49 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   recenterIcon: { fontSize: 22 },
+
+  // ── Trip card ──
+  tripCard: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 96,
+    maxHeight: 300,
+    backgroundColor: '#111827',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  tripCardContent: { padding: 18 },
+  tripHeader: { marginBottom: 8 },
+  tripHeaderTxt: { color: '#3b82f6', fontSize: 13, fontWeight: '700' },
+  patientName: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
+  patientPhone: { color: '#9ca3af', fontSize: 13, marginTop: 2, marginBottom: 10 },
+
+  tripRow: { marginBottom: 8 },
+  tripLabel: { color: '#6b7280', fontSize: 11, fontWeight: '600', marginBottom: 2 },
+  tripValue: { color: '#e5e7eb', fontSize: 14 },
+
+  startBtn: {
+    backgroundColor: '#10b981',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  startBtnTxt: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+
+  inProgressBadge: {
+    backgroundColor: 'rgba(59,130,246,0.15)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.3)',
+  },
+  inProgressTxt: { color: '#3b82f6', fontSize: 14, fontWeight: '700' },
 
   bottomNav: {
     position: 'absolute',
