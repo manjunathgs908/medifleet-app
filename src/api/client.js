@@ -36,4 +36,5 @@ export const salaryApi = {
 export const driverAuthApi = {
   loginWithPin: (employeeId, pin, deviceId) => api.post('/driver-auth/login', { employeeId, pin, deviceId }),
   changePin: (oldPin, newPin) => api.post('/driver-auth/change-pin', { oldPin, newPin }),
+  updateLocation: (lat, lng, status) => api.put('/driver-auth/location', { lat, lng, status }),
 };
