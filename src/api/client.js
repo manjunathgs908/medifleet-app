@@ -36,4 +36,13 @@ export const salaryApi = {
 export const driverAuthApi = {
   loginWithPin: (employeeId, pin, deviceId) => api.post('/driver-auth/login', { employeeId, pin, deviceId }),
   changePin: (oldPin, newPin) => api.post('/driver-auth/change-pin', { oldPin, newPin }),
+  updateLocation: (lat, lng, status) => api.put('/driver-auth/location', { lat, lng, status }),
+};
+
+// Phase 3 — driver's assigned trip (dispatched/en_route from CRM)
+export const tripsApi = {
+  getAll: (params) => api.get('/trips', { params }),
+  updateStatus: (id, status) => api.put(`/trips/${id}/status`, { status }),
+  verifyOtp: (id, otp) => api.put(`/trips/${id}/verify-otp`, { otp }),
+  complete: (id, data) => api.put(`/trips/${id}/complete`, data || {}),
 };
