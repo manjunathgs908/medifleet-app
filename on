@@ -1,0 +1,10 @@
+[33ma81fca4[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Remove map workflow
+[33mf9ca75a[m Add OTA debug alert
+[33m525fd78[m Remove shift expense advance features
+[33m25df471[m Phase 8: Real Google Map in NavigateScreen (pickup + driver location markers)
+[33mbe6fbd1[m OTA test - tiny text change
+[33m59c68ea[m Make OTA updates reliable - native config + foreground auto-check/apply
+[33m24d124b[m OLA-style DriverDashboard UI redesign (OFF/ON duty slider, bottom nav) - visual only, logic unchanged
+[33mcb2e596[m Phase 6: Wire decline button to backend endpoint
+[33m97cbb3f[m Phase 4: PIN login, Change PIN, Permissions screen (additive, native module added)
+[33m9ae9468[m Fix Bug #2: Client Dropped now completes trip via /complete endpoint (fixes missing billing/income)
