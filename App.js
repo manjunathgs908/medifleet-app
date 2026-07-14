@@ -1,15 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, View, AppState } from 'react-native';
+import { ActivityIndicator, View, AppState, Platform } from 'react-native';
 import { useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 import * as Updates from 'expo-updates';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import WelcomeScreen from './src/screens/WelcomeScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import ChangePinScreen from './src/screens/ChangePinScreen';
+import DeviceVerificationScreen from './src/screens/DeviceVerificationScreen';
 import PermissionsScreen from './src/screens/PermissionsScreen';
+import BatteryOptimizationScreen from './src/screens/BatteryOptimizationScreen';
+import TermsScreen from './src/screens/TermsScreen';
+import DriverProfileCheckScreen from './src/screens/DriverProfileCheckScreen';
 import DriverDashboard from './src/screens/driver/DriverDashboard';
 import BookingTripScreen from './src/screens/driver/BookingTripScreen';
 import TripAssignedScreen from './src/screens/driver/TripAssignedScreen';
@@ -19,11 +24,28 @@ const Stack = createNativeStackNavigator();
 function AppNavigator() {
   const { user, loading } = useAuth();
 
+  // Full driver-onboarding flow (extends the Phase 4 permissions gate):
+  // Welcome → Login(existing) → ChangePin(if forced) → DeviceVerification →
+  // Permissions → BatteryOptimization(Android) → Terms → DriverProfileCheck
+  // → Dashboard. Each step is a one-time escape hatch for this app session,
+  // same pattern as the original permissionsConfirmed flag below — once a
+  // screen calls onDone, that step is skipped for the rest of the session.
+  const [welcomeDone, setWelcomeDone] = useState(false);
+  const [deviceVerified, setDeviceVerified] = useState(false);
+  const [batteryOptDone, setBatteryOptDone] = useState(Platform.OS !== 'android');
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [profileConfirmed, setProfileConfirmed] = useState(false);
+
   // Phase 4 — permissions gate. Read-only checks here (no request calls);
   // PermissionsScreen itself does the requesting. permissionsConfirmed is
-  // the escape hatch: once PermissionsScreen reports both granted via
-  // onDone, this flips true immediately without waiting on these two
-  // independent hook instances to re-poll on their own.
+  // the escape hatch: once PermissionsScreen reports all *required*
+  // permissions granted via onDone, this flips true immediately without
+  // waiting on these two independent hook instances to re-poll on their
+  // own. Only camera+foreground location are re-checked here (not the
+  // newer background-location/notifications/media-library permissions) —
+  // DriverDashboard's own pre-"Go Online" gate re-verifies the full set
+  // every time, so a permission revoked after onboarding is still caught
+  // there even though this fast pre-check wouldn't catch it.
   const [permissionsConfirmed, setPermissionsConfirmed] = useState(false);
   const [cameraPermission] = useCameraPermissions();
   const [locationPermission] = Location.useForegroundPermissions();
@@ -37,6 +59,15 @@ function AppNavigator() {
   }
 
   if (!user) {
+    if (!welcomeDone) {
+      return (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Welcome">
+            {() => <WelcomeScreen onDone={() => setWelcomeDone(true)} />}
+          </Stack.Screen>
+        </Stack.Navigator>
+      );
+    }
     return (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Login" component={LoginScreen} />
@@ -53,6 +84,16 @@ function AppNavigator() {
       );
     }
 
+    if (!deviceVerified) {
+      return (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="DeviceVerification">
+            {() => <DeviceVerificationScreen onDone={() => setDeviceVerified(true)} />}
+          </Stack.Screen>
+        </Stack.Navigator>
+      );
+    }
+
     const permissionsGranted =
       permissionsConfirmed || (cameraPermission?.granted && locationPermission?.granted);
 
@@ -61,6 +102,36 @@ function AppNavigator() {
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Permissions">
             {() => <PermissionsScreen onDone={() => setPermissionsConfirmed(true)} />}
+          </Stack.Screen>
+        </Stack.Navigator>
+      );
+    }
+
+    if (!batteryOptDone) {
+      return (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="BatteryOptimization">
+            {() => <BatteryOptimizationScreen onDone={() => setBatteryOptDone(true)} />}
+          </Stack.Screen>
+        </Stack.Navigator>
+      );
+    }
+
+    if (!termsAccepted) {
+      return (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Terms">
+            {() => <TermsScreen onDone={() => setTermsAccepted(true)} />}
+          </Stack.Screen>
+        </Stack.Navigator>
+      );
+    }
+
+    if (!profileConfirmed) {
+      return (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="DriverProfileCheck">
+            {() => <DriverProfileCheckScreen onDone={() => setProfileConfirmed(true)} />}
           </Stack.Screen>
         </Stack.Navigator>
       );

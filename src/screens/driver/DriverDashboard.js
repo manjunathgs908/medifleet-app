@@ -1,9 +1,26 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView, TextInput } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView, TextInput, Switch, Platform } from 'react-native';
 import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
+import * as Updates from 'expo-updates';
+import { BatteryOptEnabled } from 'react-native-battery-optimization-check';
 import { useAuth } from '../../context/AuthContext';
-import { driverAuthApi, tripsApi } from '../../api/client';
+import { driverAuthApi, tripsApi, assignmentsApi, authApi } from '../../api/client';
+import { getDeviceId, checkInternet } from '../../utils/device';
+
+// Every check the driver must pass before the ON DUTY toggle is enabled.
+// Keys match the `checks` state object below 1:1 so failing ones can be
+// listed by label without a separate lookup table drifting out of sync.
+const DUTY_CHECK_LABELS = {
+  gps: 'GPS enabled',
+  internet: 'Internet connected',
+  backgroundLocation: 'Background location granted',
+  batteryOk: 'Battery optimization disabled',
+  approved: 'Driver approved',
+  ambulanceAssigned: 'Ambulance assigned',
+  documentsValid: 'Documents uploaded',
+  appUpdated: 'App up to date',
+};
 
 // Default region: Bengaluru (map ge fallback, GPS baruvavarege)
 const BANGALORE = {
@@ -39,6 +56,116 @@ export default function DriverDashboard({ navigation, route }) {
   const [verifyingOtp, setVerifyingOtp] = useState(false);
 
   const [completingTrip, setCompletingTrip] = useState(false);
+
+  // ── ON DUTY toggle + pre-go-online gate ──
+  const [profile, setProfile] = useState(user);
+  const [onDuty, setOnDuty] = useState(false);
+  const [dutyLoading, setDutyLoading] = useState(false);
+  const [checks, setChecks] = useState({});
+  const [checksLoading, setChecksLoading] = useState(true);
+
+  // Re-fetches the real driver profile (approvalStatus/assignedAmbulanceId/
+  // driverDocuments — not necessarily fresh in AuthContext if the session
+  // has been open a while) and runs every device/account check the toggle
+  // is gated on. Returns the computed checks so the toggle handler can act
+  // on them immediately instead of waiting on the next render's state.
+  const runDutyChecks = useCallback(async () => {
+    setChecksLoading(true);
+    let freshUser = user;
+    try {
+      const { data } = await authApi.me();
+      if (data?.user) freshUser = data.user;
+    } catch (err) {
+      // Silent — fall back to whatever AuthContext already has.
+    }
+    setProfile(freshUser);
+
+    const [gps, internet, backgroundPerm, batteryEnabled, updateResult] = await Promise.all([
+      Location.hasServicesEnabledAsync(),
+      checkInternet(),
+      Location.getBackgroundPermissionsAsync(),
+      Platform.OS === 'android' ? BatteryOptEnabled() : Promise.resolve(false),
+      __DEV__ ? Promise.resolve({ isAvailable: false }) : Updates.checkForUpdateAsync().catch(() => ({ isAvailable: false })),
+    ]);
+
+    const next = {
+      gps,
+      internet,
+      backgroundLocation: !!backgroundPerm?.granted,
+      batteryOk: Platform.OS === 'android' ? !batteryEnabled : true,
+      approved: freshUser?.approvalStatus === 'approved',
+      ambulanceAssigned: !!freshUser?.assignedAmbulanceId,
+      documentsValid: !!(
+        freshUser?.driverDocuments?.dl?.url &&
+        freshUser?.driverDocuments?.aadhaar?.url &&
+        freshUser?.driverDocuments?.photo?.url
+      ),
+      appUpdated: !updateResult?.isAvailable,
+    };
+    setChecks(next);
+    setChecksLoading(false);
+    return next;
+  }, [user]);
+
+  useEffect(() => {
+    runDutyChecks();
+  }, [runDutyChecks]);
+
+  // Reflects the real backend state (e.g. app was killed mid-shift) rather
+  // than assuming off-duty on every cold start.
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { data } = await assignmentsApi.getMyActiveShift();
+        if (mounted) setOnDuty(!!data?.shift);
+      } catch (err) {
+        // Silent — toggle just defaults to off; driver can still try to go online.
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const failingChecks = Object.keys(DUTY_CHECK_LABELS).filter(k => checks[k] === false);
+  const allChecksPassed = !checksLoading && failingChecks.length === 0;
+
+  async function handleToggleDuty() {
+    if (onDuty) {
+      setDutyLoading(true);
+      try {
+        await assignmentsApi.endDuty(driverLoc?.latitude, driverLoc?.longitude);
+        setOnDuty(false);
+      } catch (err) {
+        Alert.alert('Error', err?.response?.data?.message || 'Could not end duty. Try again.');
+      } finally {
+        setDutyLoading(false);
+      }
+      return;
+    }
+
+    const fresh = await runDutyChecks();
+    const stillFailing = Object.keys(DUTY_CHECK_LABELS).filter(k => fresh[k] === false);
+    if (stillFailing.length > 0) {
+      Alert.alert(
+        'Cannot Go Online',
+        'Please fix the following before going on duty:\n\n' +
+          stillFailing.map(k => `• ${DUTY_CHECK_LABELS[k]}`).join('\n')
+      );
+      return;
+    }
+
+    setDutyLoading(true);
+    try {
+      const deviceId = await getDeviceId();
+      const ambulanceId = profile?.assignedAmbulanceId?._id || profile?.assignedAmbulanceId;
+      await assignmentsApi.startDuty(ambulanceId, deviceId, driverLoc?.latitude, driverLoc?.longitude);
+      setOnDuty(true);
+    } catch (err) {
+      Alert.alert('Error', err?.response?.data?.message || 'Could not start duty. Try again.');
+    } finally {
+      setDutyLoading(false);
+    }
+  }
 
   // ── Get initial location + start map ──
   useEffect(() => {
@@ -258,6 +385,28 @@ export default function DriverDashboard({ navigation, route }) {
             <Text style={styles.logoutTxt}>Logout</Text>
           </TouchableOpacity>
         </View>
+
+        <View style={styles.dutyCard}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.dutyLabel}>{onDuty ? '🟢 ON DUTY' : '⚪ OFF DUTY'}</Text>
+            {!onDuty && !checksLoading && failingChecks.length > 0 && (
+              <Text style={styles.dutyWarn} numberOfLines={2}>
+                Needs: {failingChecks.map(k => DUTY_CHECK_LABELS[k]).join(', ')}
+              </Text>
+            )}
+          </View>
+          {dutyLoading || checksLoading ? (
+            <ActivityIndicator color="#10b981" />
+          ) : (
+            <Switch
+              value={onDuty}
+              onValueChange={handleToggleDuty}
+              disabled={!onDuty && !allChecksPassed}
+              trackColor={{ false: '#374151', true: '#10b981' }}
+              thumbColor="#fff"
+            />
+          )}
+        </View>
       </View>
 
       <TouchableOpacity style={[styles.recenterBtn, activeTrip && { bottom: 380 }]} onPress={recenter}>
@@ -418,6 +567,18 @@ const styles = StyleSheet.create({
   role: { color: '#10b981', fontSize: 13, marginTop: 2 },
   logoutBtn: { backgroundColor: '#ef4444', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 },
   logoutTxt: { color: '#fff', fontWeight: 'bold' },
+
+  dutyCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(17,24,39,0.92)',
+    padding: 14,
+    borderRadius: 14,
+    marginTop: 10,
+  },
+  dutyLabel: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
+  dutyWarn: { color: '#f59e0b', fontSize: 11, marginTop: 3, lineHeight: 15 },
 
   recenterBtn: {
     position: 'absolute',

@@ -1,88 +1,148 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Linking } from 'react-native';
-import { useCameraPermissions } from 'expo-camera';
+import { useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as Location from 'expo-location';
+import * as MediaLibrary from 'expo-media-library';
+import * as Notifications from 'expo-notifications';
 
 /**
- * One-time permissions gate (Phase 4 of the driver-auth redesign).
- * App.js only mounts this when either permission isn't already granted;
- * once both are granted it's skipped entirely on subsequent logins.
+ * One-time permissions gate (Phase 4 of the driver-auth redesign, extended
+ * for the full onboarding flow). App.js only mounts this when at least one
+ * *required* permission isn't already granted; once all required ones are
+ * granted it's skipped entirely on subsequent logins. Microphone is optional
+ * (has its own Skip) — everything else is required because DriverDashboard's
+ * live-tracking/trip-assignment/selfie flows depend on it.
  */
 export default function PermissionsScreen({ onDone }) {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [locationPermission, requestLocationPermission] = Location.useForegroundPermissions();
+  const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
+  const [foregroundPermission, requestForegroundPermission] = Location.useForegroundPermissions();
+  const [backgroundPermission, requestBackgroundPermission] = Location.useBackgroundPermissions();
+  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
 
-  // Auto-trigger the native prompts once, the first time each permission
-  // has never been asked for — avoids re-prompting on every render after
-  // the user has already answered (granted or denied) once.
+  // expo-notifications has no permission hook — tracked manually.
+  const [notifPermission, setNotifPermission] = useState(null);
+
+  const refreshNotifPermission = useCallback(async () => {
+    const status = await Notifications.getPermissionsAsync();
+    setNotifPermission(status);
+  }, []);
+
+  useEffect(() => {
+    refreshNotifPermission();
+  }, [refreshNotifPermission]);
+
+  async function requestNotifPermission() {
+    const status = await Notifications.requestPermissionsAsync();
+    setNotifPermission(status);
+    return status;
+  }
+
+  // Background location can only be requested after foreground is granted
+  // (OS requirement on both Android and iOS) — auto-trigger it right after.
   useEffect(() => {
     if (cameraPermission?.status === 'undetermined') requestCameraPermission();
   }, [cameraPermission?.status]);
 
   useEffect(() => {
-    if (locationPermission?.status === 'undetermined') requestLocationPermission();
-  }, [locationPermission?.status]);
+    if (foregroundPermission?.status === 'undetermined') requestForegroundPermission();
+  }, [foregroundPermission?.status]);
 
-  const cameraGranted   = !!cameraPermission?.granted;
-  const locationGranted = !!locationPermission?.granted;
-  const bothGranted      = cameraGranted && locationGranted;
+  useEffect(() => {
+    if (foregroundPermission?.granted && backgroundPermission?.status === 'undetermined') {
+      requestBackgroundPermission();
+    }
+  }, [foregroundPermission?.granted, backgroundPermission?.status]);
 
-  const cameraBlocked   = !!cameraPermission && !cameraPermission.granted && !cameraPermission.canAskAgain;
-  const locationBlocked = !!locationPermission && !locationPermission.granted && !locationPermission.canAskAgain;
-  const anyBlocked      = cameraBlocked || locationBlocked;
+  useEffect(() => {
+    if (notifPermission?.status === 'undetermined') requestNotifPermission();
+  }, [notifPermission?.status]);
 
-  function statusIcon(granted, blocked) {
-    if (granted) return '✅';
-    if (blocked) return '⛔';
+  useEffect(() => {
+    if (mediaPermission?.status === 'undetermined') requestMediaPermission();
+  }, [mediaPermission?.status]);
+
+  const required = [
+    { key: 'camera', icon: '📸', title: 'Camera', desc: "Used to take your selfie when you start a shift.", perm: cameraPermission },
+    { key: 'location', icon: '📍', title: 'Location', desc: "Used to track your ambulance's position during a trip.", perm: foregroundPermission },
+    { key: 'backgroundLocation', icon: '🛰️', title: 'Background Location', desc: 'Keeps tracking your position even while the app is in the background.', perm: backgroundPermission },
+    { key: 'notifications', icon: '🔔', title: 'Notifications', desc: 'Alerts you the moment a new trip is assigned.', perm: notifPermission },
+    { key: 'media', icon: '🖼️', title: 'Storage', desc: 'Lets you save and attach photos from your device.', perm: mediaPermission },
+  ];
+
+  const optional = [
+    { key: 'microphone', icon: '🎙️', title: 'Microphone', desc: 'Optional — only needed if you record audio notes during a trip.', perm: microphonePermission },
+  ];
+
+  function statusIcon(perm) {
+    if (!perm) return '⏳';
+    if (perm.granted) return '✅';
+    if (!perm.canAskAgain && perm.status !== 'undetermined') return '⛔';
     return '⏳';
   }
 
+  const requiredGranted = required.every(p => p.perm?.granted);
+  const requiredBlocked = required.some(p => p.perm && !p.perm.granted && p.perm.canAskAgain === false);
+  const microphoneBlocked = !!microphonePermission && !microphonePermission.granted && microphonePermission.canAskAgain === false;
+
   function handlePress() {
-    if (bothGranted) {
+    if (requiredGranted) {
       onDone?.();
-    } else if (anyBlocked) {
+    } else if (requiredBlocked) {
       Linking.openSettings();
     } else {
-      requestCameraPermission();
-      requestLocationPermission();
+      if (cameraPermission?.status !== 'granted') requestCameraPermission();
+      if (foregroundPermission?.status !== 'granted') requestForegroundPermission();
+      if (foregroundPermission?.granted && backgroundPermission?.status !== 'granted') requestBackgroundPermission();
+      if (notifPermission?.status !== 'granted') requestNotifPermission();
+      if (mediaPermission?.status !== 'granted') requestMediaPermission();
     }
   }
 
-  const buttonLabel = bothGranted ? 'Continue →' : anyBlocked ? 'Open Settings' : 'Grant Permissions';
-  // Disabled only while both permissions are still undetermined and
-  // there's nothing actionable for the button to do yet.
-  const buttonDisabled = !bothGranted && !anyBlocked
-    && cameraPermission?.status === 'undetermined'
-    && locationPermission?.status === 'undetermined';
+  const allUndetermined = required.every(p => p.perm?.status === 'undetermined');
+  const buttonLabel = requiredGranted ? 'Continue →' : requiredBlocked ? 'Open Settings' : 'Grant Permissions';
+  const buttonDisabled = !requiredGranted && !requiredBlocked && allUndetermined;
 
   return (
     <View style={styles.container}>
       <View style={styles.card}>
         <Text style={styles.title}>App Permissions</Text>
-        <Text style={styles.subtitle}>MediFleet needs two permissions to work correctly:</Text>
+        <Text style={styles.subtitle}>MediFleet needs a few permissions to work correctly:</Text>
 
-        <View style={styles.permRow}>
-          <Text style={styles.permIcon}>📸</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.permTitle}>Camera</Text>
-            <Text style={styles.permDesc}>Used to take your selfie when you start a shift.</Text>
+        {required.map(p => (
+          <View key={p.key} style={styles.permRow}>
+            <Text style={styles.permIcon}>{p.icon}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.permTitle}>{p.title}</Text>
+              <Text style={styles.permDesc}>{p.desc}</Text>
+            </View>
+            <Text style={styles.permStatus}>{statusIcon(p.perm)}</Text>
           </View>
-          <Text style={styles.permStatus}>{statusIcon(cameraGranted, cameraBlocked)}</Text>
-        </View>
+        ))}
 
-        <View style={styles.permRow}>
-          <Text style={styles.permIcon}>📍</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.permTitle}>Location</Text>
-            <Text style={styles.permDesc}>Used to track your ambulance's position during a trip.</Text>
+        {optional.map(p => (
+          <View key={p.key} style={styles.permRow}>
+            <Text style={styles.permIcon}>{p.icon}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.permTitle}>{p.title}</Text>
+              <Text style={styles.permDesc}>{p.desc}</Text>
+            </View>
+            <Text style={styles.permStatus}>{statusIcon(p.perm)}</Text>
           </View>
-          <Text style={styles.permStatus}>{statusIcon(locationGranted, locationBlocked)}</Text>
-        </View>
+        ))}
 
-        {anyBlocked && (
+        {requiredBlocked && (
           <Text style={styles.warnText}>
             One or more permissions were permanently denied. Please enable them in Settings.
           </Text>
+        )}
+
+        {!microphonePermission?.granted && (
+          <TouchableOpacity onPress={requestMicrophonePermission} disabled={microphoneBlocked}>
+            <Text style={styles.micLink}>
+              {microphoneBlocked ? 'Microphone denied — enable in Settings if needed' : 'Grant microphone access (optional)'}
+            </Text>
+          </TouchableOpacity>
         )}
 
         <TouchableOpacity
@@ -145,6 +205,13 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 8,
     lineHeight: 17,
+  },
+  micLink: {
+    color: '#3b82f6',
+    fontSize: 12.5,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 12,
   },
   button: {
     backgroundColor: '#10b981',

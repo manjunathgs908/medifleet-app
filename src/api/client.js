@@ -48,3 +48,11 @@ export const tripsApi = {
   confirm: (id) => api.put(`/trips/${id}/confirm`),
   decline: (id) => api.put(`/trips/${id}/decline`),
 };
+
+// Driver-onboarding flow — ON DUTY toggle on DriverDashboard, backed by the
+// existing Phase 3 Assignment/Shift endpoints (previously unused by the app).
+export const assignmentsApi = {
+  startDuty: (ambulanceId, deviceId, lat, lng) => api.post('/assignments/start-duty', { ambulanceId, deviceId, lat, lng }),
+  endDuty: (lat, lng) => api.post('/assignments/end-duty', { lat, lng }),
+  getMyActiveShift: () => api.get('/assignments/my-active'),
+};

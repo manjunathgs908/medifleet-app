@@ -1,22 +1,11 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, ActivityIndicator, Alert, Platform,
+  StyleSheet, ActivityIndicator, Alert,
 } from 'react-native';
-import * as Application from 'expo-application';
 import { useAuth } from '../context/AuthContext';
 import PinInput from '../components/PinInput';
-
-async function getDeviceId() {
-  try {
-    if (Platform.OS === 'android') {
-      return Application.getAndroidId();
-    }
-    return await Application.getIosIdForVendorAsync();
-  } catch {
-    return null;
-  }
-}
+import { getDeviceId } from '../utils/device';
 
 export default function LoginScreen() {
   const { login, loginWithPin } = useAuth();

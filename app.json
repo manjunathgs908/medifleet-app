@@ -17,7 +17,9 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Camera needed for expense bill photos and selfie",
         "NSLocationWhenInUseUsageDescription": "GPS needed for live tracking",
-        "NSLocationAlwaysUsageDescription": "GPS needed for background tracking"
+        "NSLocationAlwaysUsageDescription": "GPS needed for background tracking",
+        "NSPhotoLibraryUsageDescription": "Allow MediFleet to save and attach photos from your library",
+        "NSMicrophoneUsageDescription": "Allow MediFleet to record audio notes during a trip"
       }
     },
     "android": {
@@ -30,10 +32,14 @@
       "package": "com.medifleetapp.medifleetapp",
       "permissions": [
         "CAMERA",
+        "RECORD_AUDIO",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE"
+        "FOREGROUND_SERVICE",
+        "POST_NOTIFICATIONS",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO"
       ],
       "config": {
         "googleMaps": {
@@ -48,13 +54,28 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow MediFleet to access camera for bill photos"
+          "cameraPermission": "Allow MediFleet to access camera for bill photos",
+          "microphonePermission": "Allow MediFleet to record audio notes during a trip"
         }
       ],
       [
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Allow MediFleet to use your location for live tracking"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-foreground.png",
+          "color": "#10b981"
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow MediFleet to save and attach photos from your library",
+          "savePhotosPermission": "Allow MediFleet to save photos taken during a trip"
         }
       ]
     ],
