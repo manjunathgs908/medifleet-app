@@ -6,13 +6,15 @@ import {
 import { useAuth } from '../context/AuthContext';
 import PinInput from '../components/PinInput';
 import { getDeviceId } from '../utils/device';
+import { ownerAuthApi } from '../api/client';
 
 export default function LoginScreen() {
-  const { login, loginWithPin } = useAuth();
+  const { login, loginWithPin, ownerLogin } = useAuth();
 
   // Phase 4 — mode toggle. PIN Login is the default; Password Login is
   // the pre-existing flow below, untouched, just gated behind the toggle.
-  const [mode, setMode] = useState('pin'); // 'pin' | 'password'
+  // 'owner' is a minimal third tab for the Unbind Device tool.
+  const [mode, setMode] = useState('pin'); // 'pin' | 'password' | 'owner'
 
   // Shared by both flows (existing behavior — was already the single
   // loading flag used by handleLogin before this phase).
@@ -80,6 +82,44 @@ export default function LoginScreen() {
 
   const showingNotice = pendingApproval || deviceBlocked;
 
+  // ── New: Owner OTP login (minimal — Unbind Device tool only) ──────────
+  const [ownerPhone, setOwnerPhone] = useState('');
+  const [ownerOtp, setOwnerOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+
+  const handleSendOwnerOtp = async () => {
+    if (!ownerPhone) {
+      Alert.alert('Error', 'Please enter your phone number.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await ownerAuthApi.sendOtp(ownerPhone.trim());
+      setOtpSent(true);
+    } catch (e) {
+      Alert.alert('Error', e.response?.data?.message || 'Could not send OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOwnerOtp = async () => {
+    if (ownerOtp.length !== 6) {
+      Alert.alert('Error', 'Please enter the 6-digit OTP.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await ownerLogin(ownerPhone.trim(), ownerOtp.trim());
+      // App.js reacts to the updated user (role:'owner') — no explicit
+      // navigation call needed here, same pattern the other tabs use.
+    } catch (e) {
+      Alert.alert('Error', e.response?.data?.message || 'Invalid or expired OTP.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.card}>
@@ -98,6 +138,12 @@ export default function LoginScreen() {
             onPress={() => setMode('password')}
           >
             <Text style={[styles.tabText, mode === 'password' && styles.tabTextActive]}>Password Login</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabBtn, mode === 'owner' && styles.tabBtnActive]}
+            onPress={() => setMode('owner')}
+          >
+            <Text style={[styles.tabText, mode === 'owner' && styles.tabTextActive]}>Owner</Text>
           </TouchableOpacity>
         </View>
 
@@ -149,7 +195,7 @@ export default function LoginScreen() {
               }
             </TouchableOpacity>
           </>
-        ) : (
+        ) : mode === 'password' ? (
           <>
             <TextInput
               style={styles.input}
@@ -179,6 +225,42 @@ export default function LoginScreen() {
                 : <Text style={styles.buttonText}>Sign In →</Text>
               }
             </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <TextInput
+              style={styles.input}
+              placeholder="Phone Number"
+              placeholderTextColor="#888"
+              keyboardType="phone-pad"
+              editable={!otpSent}
+              value={ownerPhone}
+              onChangeText={setOwnerPhone}
+            />
+
+            {otpSent && (
+              <>
+                <Text style={styles.label}>6-Digit OTP</Text>
+                <PinInput length={6} value={ownerOtp} onChange={setOwnerOtp} />
+              </>
+            )}
+
+            <TouchableOpacity
+              style={[styles.button, { marginTop: otpSent ? 20 : 8 }, loading && { opacity: 0.6 }]}
+              onPress={otpSent ? handleVerifyOwnerOtp : handleSendOwnerOtp}
+              disabled={loading}
+            >
+              {loading
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.buttonText}>{otpSent ? 'Verify OTP →' : 'Send OTP'}</Text>
+              }
+            </TouchableOpacity>
+
+            {otpSent && (
+              <TouchableOpacity onPress={() => { setOtpSent(false); setOwnerOtp(''); }} style={{ marginTop: 12 }}>
+                <Text style={styles.label}>Change phone number</Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
       </View>

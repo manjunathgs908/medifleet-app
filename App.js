@@ -18,6 +18,7 @@ import DriverProfileCheckScreen from './src/screens/DriverProfileCheckScreen';
 import DriverDashboard from './src/screens/driver/DriverDashboard';
 import BookingTripScreen from './src/screens/driver/BookingTripScreen';
 import TripAssignedScreen from './src/screens/driver/TripAssignedScreen';
+import UnbindDeviceScreen from './src/screens/owner/UnbindDeviceScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -146,6 +147,20 @@ function AppNavigator() {
           component={TripAssignedScreen}
           options={{ presentation: 'modal', gestureEnabled: false }}
         />
+      </Stack.Navigator>
+    );
+  }
+
+  // Owner OTP login (fleet-Owner model) — minimal single-screen tool, no
+  // onboarding gate needed. Note: a User-model owner logging in via the
+  // Password tab also gets role:'owner' and would land here too, but their
+  // token is protect-gated, not protectOwner-gated, so UnbindDeviceScreen's
+  // API calls would fail for them — this tool is only reachable in practice
+  // via LoginScreen's dedicated Owner (OTP) tab.
+  if (user.role === 'owner') {
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="UnbindDevice" component={UnbindDeviceScreen} />
       </Stack.Navigator>
     );
   }

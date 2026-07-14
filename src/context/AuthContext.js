@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authApi, driverAuthApi } from '../api/client';
+import { authApi, driverAuthApi, ownerAuthApi } from '../api/client';
 
 const AuthContext = createContext(null);
 
@@ -62,8 +62,21 @@ export const AuthProvider = ({ children }) => {
     setUser(updated);
   };
 
+  // Owner OTP login (fleet-Owner model, Phase 1) — additive, same
+  // token-storage pattern as loginWithPin above. Note: this is a
+  // completely separate session/collection from the User-model owner
+  // login() above, even though both end up with user.role === 'owner'.
+  const ownerLogin = async (phone, otp) => {
+    const { data } = await ownerAuthApi.verifyOtp(phone, otp);
+    await AsyncStorage.setItem('accessToken', data.accessToken);
+    await AsyncStorage.setItem('refreshToken', data.refreshToken);
+    await AsyncStorage.setItem('user', JSON.stringify(data.owner));
+    setUser(data.owner);
+    return data.owner;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, loginWithPin, completePinChange }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, loginWithPin, completePinChange, ownerLogin }}>
       {children}
     </AuthContext.Provider>
   );

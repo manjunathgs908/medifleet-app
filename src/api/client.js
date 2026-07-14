@@ -56,3 +56,16 @@ export const assignmentsApi = {
   endDuty: (lat, lng) => api.post('/assignments/end-duty', { lat, lng }),
   getMyActiveShift: () => api.get('/assignments/my-active'),
 };
+
+// Owner OTP login (Phase 1 fleet-Owner model, separate from the User-model
+// owner login above) — a different session/token from authApi.login.
+export const ownerAuthApi = {
+  sendOtp: (phone, name) => api.post('/owners/send-otp', { phone, name }),
+  verifyOtp: (phone, otp) => api.post('/owners/verify-otp', { phone, otp }),
+};
+
+// Owner-facing driver device management — Unbind Device tool.
+export const ownerDriverApi = {
+  list: () => api.get('/driver-auth'),
+  unbindDevice: (id) => api.put(`/driver-auth/${id}/unbind-device`),
+};
