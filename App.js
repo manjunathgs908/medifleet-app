@@ -12,6 +12,7 @@ import ChangePinScreen from './src/screens/ChangePinScreen';
 import PermissionsScreen from './src/screens/PermissionsScreen';
 import DriverDashboard from './src/screens/driver/DriverDashboard';
 import BookingTripScreen from './src/screens/driver/BookingTripScreen';
+import TripAssignedScreen from './src/screens/driver/TripAssignedScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -69,6 +70,11 @@ function AppNavigator() {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="DriverDashboard" component={DriverDashboard} />
         <Stack.Screen name="BookingTrip" component={BookingTripScreen} />
+        <Stack.Screen
+          name="TripAssigned"
+          component={TripAssignedScreen}
+          options={{ presentation: 'modal', gestureEnabled: false }}
+        />
       </Stack.Navigator>
     );
   }

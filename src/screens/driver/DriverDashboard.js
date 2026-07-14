@@ -16,11 +16,16 @@ const BANGALORE = {
 const LOCATION_UPDATE_INTERVAL_MS = 10000;
 const TRIP_POLL_INTERVAL_MS = 15000;
 
-export default function DriverDashboard({ navigation }) {
+export default function DriverDashboard({ navigation, route }) {
   const { user, logout } = useAuth();
   const mapRef = useRef(null);
   const intervalRef = useRef(null);
   const tripIntervalRef = useRef(null);
+  // Guards against re-navigating to the popup every poll tick while the
+  // same unconfirmed trip is still pending. Keyed on id+dispatchedAt so a
+  // later re-assignment of the same trip document (new dispatchedAt) is
+  // still treated as a fresh prompt.
+  const promptedTripKeyRef = useRef(null);
 
   const [region, setRegion] = useState(BANGALORE);
   const [driverLoc, setDriverLoc] = useState(null);
@@ -111,7 +116,20 @@ export default function DriverDashboard({ navigation }) {
       try {
         const { data } = await tripsApi.getAll({});
         const trips = data.trips || [];
-        const trip = trips.find(t => t.status === 'dispatched' || t.status === 'en_route');
+
+        // A 'dispatched' trip the driver hasn't accepted/rejected yet —
+        // show the Accept/Reject popup instead of surfacing it as active.
+        const unconfirmed = trips.find(t => t.status === 'dispatched' && !t.driverConfirmed);
+        if (unconfirmed) {
+          const key = `${unconfirmed._id}-${unconfirmed.dispatchedAt}`;
+          if (promptedTripKeyRef.current !== key) {
+            promptedTripKeyRef.current = key;
+            navigation.navigate('TripAssigned', { trip: unconfirmed });
+          }
+          return;
+        }
+
+        const trip = trips.find(t => (t.status === 'dispatched' && t.driverConfirmed) || t.status === 'en_route');
         setActiveTrip(trip || null);
       } catch (err) {
         // Silent — next interval tick will retry automatically.
@@ -125,6 +143,16 @@ export default function DriverDashboard({ navigation }) {
       if (tripIntervalRef.current) clearInterval(tripIntervalRef.current);
     };
   }, []);
+
+  // ── Trip just accepted on TripAssignedScreen — show it as active
+  //    immediately instead of waiting for the next poll tick. ──
+  useEffect(() => {
+    const confirmedTrip = route?.params?.confirmedTrip;
+    if (confirmedTrip) {
+      setActiveTrip(confirmedTrip);
+      navigation.setParams({ confirmedTrip: undefined });
+    }
+  }, [route?.params?.confirmedTrip]);
 
   const startTrip = async () => {
     if (!activeTrip) return;
@@ -240,7 +268,7 @@ export default function DriverDashboard({ navigation }) {
         <ScrollView style={styles.tripCard} contentContainerStyle={styles.tripCardContent}>
           <View style={styles.tripHeader}>
             <Text style={styles.tripHeaderTxt}>
-              {activeTrip.status === 'en_route' ? '🚑 Trip In Progress' : '🆕 New Trip Assigned'}
+              {activeTrip.status === 'en_route' ? '🚑 Trip In Progress' : '✅ Trip Accepted'}
             </Text>
           </View>
 

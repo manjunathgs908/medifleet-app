@@ -45,4 +45,6 @@ export const tripsApi = {
   updateStatus: (id, status) => api.put(`/trips/${id}/status`, { status }),
   verifyOtp: (id, otp) => api.put(`/trips/${id}/verify-otp`, { otp }),
   complete: (id, data) => api.put(`/trips/${id}/complete`, data || {}),
+  confirm: (id) => api.put(`/trips/${id}/confirm`),
+  decline: (id) => api.put(`/trips/${id}/decline`),
 };
