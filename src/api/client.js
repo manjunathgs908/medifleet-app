@@ -83,6 +83,8 @@ export const assignmentsApi = {
   getMyActiveShift: () => api.get('/assignments/my-active'),
   // Phase 4 — ambulances a driver can pick from at start-duty.
   getAvailableAmbulances: () => api.get('/assignments/available-ambulances'),
+  // Phase 6 — owner-facing live fleet overview (protectOwner-gated).
+  getFleetStatus: () => api.get('/assignments/fleet-status'),
 };
 
 // Owner OTP login (Phase 1 fleet-Owner model, separate from the User-model

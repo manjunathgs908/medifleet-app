@@ -31,6 +31,14 @@ export default function OwnerHomeScreen({ navigation }) {
       </View>
 
       <View style={styles.body}>
+        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('OwnerDashboard')}>
+          <Text style={styles.cardIcon}>📊</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle}>Live Dashboard</Text>
+            <Text style={styles.cardDesc}>Who's on duty, on which ambulance, right now</Text>
+          </View>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('AddAmbulance')}>
           <Text style={styles.cardIcon}>➕</Text>
           <View style={{ flex: 1 }}>

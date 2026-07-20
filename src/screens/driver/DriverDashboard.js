@@ -90,6 +90,7 @@ export default function DriverDashboard({ navigation, route }) {
   // ── ON DUTY toggle + pre-go-online gate ──
   const [profile, setProfile] = useState(user);
   const [onDuty, setOnDuty] = useState(false);
+  const onDutyRef = useRef(false); // mirrors onDuty for the GPS-loop effect below ([] deps, would otherwise see a stale value)
   const [activeAmbulance, setActiveAmbulance] = useState(null); // Phase 4 — which ambulance was picked at start-duty
   const [dutyLoading, setDutyLoading] = useState(false);
   const [checks, setChecks] = useState({});
@@ -251,10 +252,14 @@ export default function DriverDashboard({ navigation, route }) {
   }, []);
 
   // Keep the GPS-loop effect (mounted once, [] deps) able to see the
-  // latest activeTrip without re-subscribing the interval every trip update.
+  // latest activeTrip/onDuty without re-subscribing the interval every update.
   useEffect(() => {
     activeTripRef.current = activeTrip;
   }, [activeTrip]);
+
+  useEffect(() => {
+    onDutyRef.current = onDuty;
+  }, [onDuty]);
 
   // ── Send location to backend every 10 seconds; also accumulate actual
   //    distance travelled while a trip is en_route (Step C) ──
@@ -282,7 +287,19 @@ export default function DriverDashboard({ navigation, route }) {
           lastFixRef.current = null;
         }
 
-        await driverAuthApi.updateLocation(latitude, longitude, 'available');
+        // Phase 6A — this used to hardcode 'available' regardless of real
+        // state; the owner dashboard (and the CRM's existing Leaflet map,
+        // which already reads this same field for marker color) both need
+        // it to actually reflect reality. activeTrip is non-null for both
+        // 'dispatched' (accepted) and 'en_route' — the backend itself
+        // already writes 'on_trip' at the moment of dispatch
+        // (assignTripToVehicle), so matching that here (not just
+        // 'en_route') avoids the very next 10s ping flipping it back to
+        // 'available' before the driver even taps "Trip Started".
+        const liveStatus = activeTripRef.current
+          ? 'on_trip'
+          : (onDutyRef.current ? 'available' : 'offline');
+        await driverAuthApi.updateLocation(latitude, longitude, liveStatus);
       } catch (err) {
         // Silent — next interval tick will retry automatically.
       }
