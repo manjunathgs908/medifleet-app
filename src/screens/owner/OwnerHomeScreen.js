@@ -39,6 +39,14 @@ export default function OwnerHomeScreen({ navigation }) {
           </View>
         </TouchableOpacity>
 
+        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('PendingDrivers')}>
+          <Text style={styles.cardIcon}>🧑‍✈️</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle}>Pending Drivers</Text>
+            <Text style={styles.cardDesc}>Review documents, approve or reject</Text>
+          </View>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('UnbindDevice')}>
           <Text style={styles.cardIcon}>🔓</Text>
           <View style={{ flex: 1 }}>

@@ -25,6 +25,26 @@ export const AuthProvider = ({ children }) => {
 
   const dismissDeviceKicked = () => setDeviceKicked(false);
 
+  // Re-fetches the driver's own profile and merges it into the cached
+  // user — needed because approvalStatus can change server-side (owner
+  // approves/rejects) with no push mechanism; DriverOnboardingScreen
+  // polls this so the app notices and moves on once approved, without
+  // requiring a fresh login.
+  const refreshUser = async () => {
+    try {
+      const { data } = await authApi.me();
+      if (data?.user) {
+        const merged = { ...user, ...data.user };
+        await AsyncStorage.setItem('user', JSON.stringify(merged));
+        setUser(merged);
+        return merged;
+      }
+    } catch (e) {
+      // Silent — caller just keeps whatever's already cached.
+    }
+    return user;
+  };
+
   const loadUser = async () => {
     try {
       const token = await AsyncStorage.getItem('accessToken');
@@ -78,7 +98,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, loginWithOtp, ownerLogin, deviceKicked, dismissDeviceKicked }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, loginWithOtp, ownerLogin, deviceKicked, dismissDeviceKicked, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -14,6 +14,7 @@ import PermissionsScreen from './src/screens/PermissionsScreen';
 import BatteryOptimizationScreen from './src/screens/BatteryOptimizationScreen';
 import TermsScreen from './src/screens/TermsScreen';
 import DriverProfileCheckScreen from './src/screens/DriverProfileCheckScreen';
+import DriverOnboardingScreen from './src/screens/DriverOnboardingScreen';
 import DriverDashboard from './src/screens/driver/DriverDashboard';
 import BookingTripScreen from './src/screens/driver/BookingTripScreen';
 import TripAssignedScreen from './src/screens/driver/TripAssignedScreen';
@@ -21,6 +22,7 @@ import UnbindDeviceScreen from './src/screens/owner/UnbindDeviceScreen';
 import OwnerHomeScreen from './src/screens/owner/OwnerHomeScreen';
 import AddAmbulanceScreen from './src/screens/owner/AddAmbulanceScreen';
 import MyAmbulancesScreen from './src/screens/owner/MyAmbulancesScreen';
+import PendingDriversScreen from './src/screens/owner/PendingDriversScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -85,6 +87,19 @@ function AppNavigator() {
           <Stack.Screen name="DeviceVerification">
             {() => <DeviceVerificationScreen onDone={() => setDeviceVerified(true)} />}
           </Stack.Screen>
+        </Stack.Navigator>
+      );
+    }
+
+    // Phase 3 — onboarding/approval gate. A pending/rejected driver is
+    // stuck here (no onDone escape hatch — the only way out is the
+    // server-side approvalStatus flip, which DriverOnboardingScreen polls
+    // for via refreshUser()). Placed before Permissions/Terms/etc. since
+    // there's no point walking an unapproved driver through those.
+    if (user.approvalStatus !== 'approved') {
+      return (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="DriverOnboarding" component={DriverOnboardingScreen} />
         </Stack.Navigator>
       );
     }
@@ -158,6 +173,7 @@ function AppNavigator() {
         <Stack.Screen name="OwnerHome" component={OwnerHomeScreen} />
         <Stack.Screen name="AddAmbulance" component={AddAmbulanceScreen} />
         <Stack.Screen name="MyAmbulances" component={MyAmbulancesScreen} />
+        <Stack.Screen name="PendingDrivers" component={PendingDriversScreen} />
         <Stack.Screen name="UnbindDevice" component={UnbindDeviceScreen} />
       </Stack.Navigator>
     );

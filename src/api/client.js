@@ -58,6 +58,8 @@ export const driverAuthApi = {
   loginWithPin: (employeeId, pin, deviceId) => api.post('/driver-auth/login', { employeeId, pin, deviceId }),
   changePin: (oldPin, newPin) => api.post('/driver-auth/change-pin', { oldPin, newPin }),
   updateLocation: (lat, lng, status) => api.put('/driver-auth/location', { lat, lng, status }),
+  // Phase 3 — driver uploads their own onboarding documents (dl/aadhaar/photo).
+  uploadDocument: (docType, fields) => api.put('/driver-auth/documents', { docType, ...fields }),
 };
 
 // Phase 3 — driver's assigned trip (dispatched/en_route from CRM)
@@ -86,10 +88,14 @@ export const ownerAuthApi = {
   verifyOtp: (phone, otp) => api.post('/owners/verify-otp', { phone, otp }),
 };
 
-// Owner-facing driver device management — Unbind Device tool.
+// Owner-facing driver device management + approval (Unbind Device tool,
+// Phase 3 — Pending Drivers screen). Same GET /driver-auth list endpoint,
+// filtered by ?approvalStatus= for the Pending Drivers view.
 export const ownerDriverApi = {
-  list: () => api.get('/driver-auth'),
+  list       : (params) => api.get('/driver-auth', { params }),
   unbindDevice: (id) => api.put(`/driver-auth/${id}/unbind-device`),
+  approve    : (id) => api.put(`/driver-auth/${id}/approve`),
+  reject     : (id, reason) => api.put(`/driver-auth/${id}/reject`, { reason }),
 };
 
 // Owner-facing ambulance CRUD + document/photo upload (Phase 2 — Add Ambulance).
