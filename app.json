@@ -75,6 +75,13 @@
           "photosPermission": "Allow MediFleet to save and attach photos from your library",
           "savePhotosPermission": "Allow MediFleet to save photos taken during a trip"
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow MediFleet to access your photos to attach ambulance documents",
+          "cameraPermission": "Allow MediFleet to use the camera for ambulance and document photos"
+        }
       ]
     ],
     "extra": {

@@ -91,3 +91,13 @@ export const ownerDriverApi = {
   list: () => api.get('/driver-auth'),
   unbindDevice: (id) => api.put(`/driver-auth/${id}/unbind-device`),
 };
+
+// Owner-facing ambulance CRUD + document/photo upload (Phase 2 — Add Ambulance).
+export const ambulancesApi = {
+  create        : (data) => api.post('/ambulances', data),
+  getAll        : (params) => api.get('/ambulances', { params }),
+  getById       : (id) => api.get(`/ambulances/${id}`),
+  update        : (id, data) => api.put(`/ambulances/${id}`, data),
+  uploadDocument: (id, docType, fields) => api.put(`/ambulances/${id}/document`, { docType, ...fields }),
+  addPhoto      : (id, base64) => api.post(`/ambulances/${id}/photos`, { base64 }),
+};

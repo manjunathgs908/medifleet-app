@@ -18,6 +18,9 @@ import DriverDashboard from './src/screens/driver/DriverDashboard';
 import BookingTripScreen from './src/screens/driver/BookingTripScreen';
 import TripAssignedScreen from './src/screens/driver/TripAssignedScreen';
 import UnbindDeviceScreen from './src/screens/owner/UnbindDeviceScreen';
+import OwnerHomeScreen from './src/screens/owner/OwnerHomeScreen';
+import AddAmbulanceScreen from './src/screens/owner/AddAmbulanceScreen';
+import MyAmbulancesScreen from './src/screens/owner/MyAmbulancesScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -142,15 +145,19 @@ function AppNavigator() {
     );
   }
 
-  // Owner OTP login (fleet-Owner model) — minimal single-screen tool, no
-  // onboarding gate needed. LoginScreen's Password tab was dropped when
-  // driver login moved to phone+OTP; the phone+password flow (authApi.login,
-  // role:'owner'/'telecaller' User-model staff) is still reachable via
-  // AuthContext.login() if something calls it directly, but nothing on
-  // this screen does anymore — only the dedicated Owner (OTP) tab reaches here.
+  // Owner OTP login (fleet-Owner model) — a small multi-screen section now
+  // (Phase 2: Add Ambulance), no onboarding gate needed like the driver
+  // side. LoginScreen's Password tab was dropped when driver login moved
+  // to phone+OTP; the phone+password flow (authApi.login, role:'owner'/
+  // 'telecaller' User-model staff) is still reachable via AuthContext.login()
+  // if something calls it directly, but nothing on this screen does anymore
+  // — only the dedicated Owner (OTP) tab reaches here.
   if (user.role === 'owner') {
     return (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="OwnerHome" component={OwnerHomeScreen} />
+        <Stack.Screen name="AddAmbulance" component={AddAmbulanceScreen} />
+        <Stack.Screen name="MyAmbulances" component={MyAmbulancesScreen} />
         <Stack.Screen name="UnbindDevice" component={UnbindDeviceScreen} />
       </Stack.Navigator>
     );
