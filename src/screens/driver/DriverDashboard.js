@@ -33,6 +33,20 @@ const BANGALORE = {
 const LOCATION_UPDATE_INTERVAL_MS = 10000;
 const TRIP_POLL_INTERVAL_MS = 15000;
 
+// Straight-line distance between two GPS fixes — same formula used
+// server-side and in the customer app, kept local here (no shared util
+// package between apps) so distance can be accumulated client-side
+// tick-by-tick while en_route, without waiting on a round trip to the API.
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export default function DriverDashboard({ navigation, route }) {
   const { user, logout } = useAuth();
   const mapRef = useRef(null);
@@ -51,11 +65,18 @@ export default function DriverDashboard({ navigation, route }) {
 
   const [activeTrip, setActiveTrip] = useState(null);
   const [startingTrip, setStartingTrip] = useState(false);
+  const activeTripRef = useRef(null); // mirrors activeTrip for the GPS-loop effect below (which has [] deps, so it can't read state directly without going stale)
+
+  const [arrivingPickup, setArrivingPickup] = useState(false);
 
   const [otpInput, setOtpInput] = useState('');
   const [verifyingOtp, setVerifyingOtp] = useState(false);
 
   const [completingTrip, setCompletingTrip] = useState(false);
+
+  // ── Actual-distance accumulation while en_route (Step C) ──
+  const distanceAccumRef = useRef(0);
+  const lastFixRef        = useRef(null);
 
   // ── ON DUTY toggle + pre-go-online gate ──
   const [profile, setProfile] = useState(user);
@@ -212,7 +233,14 @@ export default function DriverDashboard({ navigation, route }) {
     };
   }, []);
 
-  // ── Send location to backend every 10 seconds ──
+  // Keep the GPS-loop effect (mounted once, [] deps) able to see the
+  // latest activeTrip without re-subscribing the interval every trip update.
+  useEffect(() => {
+    activeTripRef.current = activeTrip;
+  }, [activeTrip]);
+
+  // ── Send location to backend every 10 seconds; also accumulate actual
+  //    distance travelled while a trip is en_route (Step C) ──
   useEffect(() => {
     const sendLocation = async () => {
       try {
@@ -222,6 +250,20 @@ export default function DriverDashboard({ navigation, route }) {
         const { latitude, longitude } = loc.coords;
 
         setDriverLoc({ latitude, longitude });
+
+        if (activeTripRef.current?.status === 'en_route') {
+          if (lastFixRef.current) {
+            distanceAccumRef.current += haversineKm(
+              lastFixRef.current.latitude, lastFixRef.current.longitude,
+              latitude, longitude
+            );
+          }
+          lastFixRef.current = { latitude, longitude };
+        } else {
+          // Not en_route (idle/dispatched/between trips) — drop the last fix
+          // so we don't measure a jump across dead time as travelled distance.
+          lastFixRef.current = null;
+        }
 
         await driverAuthApi.updateLocation(latitude, longitude, 'available');
       } catch (err) {
@@ -286,12 +328,27 @@ export default function DriverDashboard({ navigation, route }) {
     setStartingTrip(true);
     try {
       await tripsApi.updateStatus(activeTrip._id, 'en_route');
+      distanceAccumRef.current = 0;
+      lastFixRef.current = null;
       setActiveTrip({ ...activeTrip, status: 'en_route' });
       Alert.alert('Trip Started', 'Safe driving! Patient/hospital ge navigate maadi.');
     } catch (err) {
       Alert.alert('Error', 'Trip start maadalu aagalilla. Wapas try maadi.');
     } finally {
       setStartingTrip(false);
+    }
+  };
+
+  const arrivePickup = async () => {
+    if (!activeTrip) return;
+    setArrivingPickup(true);
+    try {
+      const { data } = await tripsApi.arrivePickup(activeTrip._id);
+      setActiveTrip({ ...activeTrip, arrivedAtPickupAt: data.arrivedAtPickupAt });
+    } catch (err) {
+      Alert.alert('Error', 'Reached-pickup maadalu aagalilla. Wapas try maadi.');
+    } finally {
+      setArrivingPickup(false);
     }
   };
 
@@ -326,7 +383,11 @@ export default function DriverDashboard({ navigation, route }) {
           onPress: async () => {
             setCompletingTrip(true);
             try {
-              await tripsApi.complete(activeTrip._id, {});
+              await tripsApi.complete(activeTrip._id, {
+                actualDistanceKm: Number(distanceAccumRef.current.toFixed(2)),
+              });
+              distanceAccumRef.current = 0;
+              lastFixRef.current = null;
               setActiveTrip(null);
               Alert.alert('🎉 Trip Completed', 'Bill generate aagide. Munde trip ge ready aagi.');
             } catch (err) {
@@ -461,7 +522,19 @@ export default function DriverDashboard({ navigation, route }) {
             </TouchableOpacity>
           )}
 
-          {activeTrip.status === 'en_route' && !activeTrip.pickupVerified && (
+          {activeTrip.status === 'en_route' && !activeTrip.arrivedAtPickupAt && (
+            <TouchableOpacity
+              style={styles.arriveBtn}
+              onPress={arrivePickup}
+              disabled={arrivingPickup}
+            >
+              <Text style={styles.arriveBtnTxt}>
+                {arrivingPickup ? 'Marking...' : '📍 Reached Pickup'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {activeTrip.status === 'en_route' && activeTrip.arrivedAtPickupAt && !activeTrip.pickupVerified && (
             <View style={styles.otpSection}>
               <Text style={styles.otpLabel}>Patient hattira iruva 4-digit OTP haaki:</Text>
               <View style={styles.otpRow}>
@@ -627,6 +700,15 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   startBtnTxt: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+
+  arriveBtn: {
+    backgroundColor: '#3b82f6',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  arriveBtnTxt: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 
   otpSection: { marginTop: 12 },
   otpLabel: { color: '#9ca3af', fontSize: 13, marginBottom: 8 },
