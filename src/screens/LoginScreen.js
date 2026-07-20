@@ -21,6 +21,10 @@ export default function LoginScreen() {
   const [driverOtp, setDriverOtp] = useState('');
   const [driverOtpSent, setDriverOtpSent] = useState(false);
   const [pendingApproval, setPendingApproval] = useState(false);
+  // TEMPORARY — REMOVE AFTER DLT APPROVAL. testOtp only ever appears in
+  // the response for whitelisted numbers (see authController.sendOtp) —
+  // this just surfaces it on screen since a phone can't see server logs.
+  const [driverTestOtp, setDriverTestOtp] = useState(null);
 
   const handleSendDriverOtp = async () => {
     if (driverPhone.trim().length !== 10) {
@@ -29,8 +33,14 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      await authApi.sendOtp(driverPhone.trim());
+      const { data } = await authApi.sendOtp(driverPhone.trim());
       setDriverOtpSent(true);
+      if (data?.testOtp) {
+        setDriverTestOtp(data.testOtp);
+        setDriverOtp(data.testOtp);
+      } else {
+        setDriverTestOtp(null);
+      }
     } catch (e) {
       Alert.alert('Error', e.response?.data?.message || 'Could not send OTP. Please try again.');
     } finally {
@@ -70,12 +80,15 @@ export default function LoginScreen() {
     setPendingApproval(false);
     setDriverOtp('');
     setDriverOtpSent(false);
+    setDriverTestOtp(null);
   };
 
   // ── Owner: phone + OTP (fleet-Owner model — untouched) ─────────
   const [ownerPhone, setOwnerPhone] = useState('');
   const [ownerOtp, setOwnerOtp] = useState('');
   const [ownerOtpSent, setOwnerOtpSent] = useState(false);
+  // TEMPORARY — REMOVE AFTER DLT APPROVAL. See driverTestOtp above.
+  const [ownerTestOtp, setOwnerTestOtp] = useState(null);
 
   const handleSendOwnerOtp = async () => {
     if (!ownerPhone) {
@@ -84,8 +97,14 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      await ownerAuthApi.sendOtp(ownerPhone.trim());
+      const { data } = await ownerAuthApi.sendOtp(ownerPhone.trim());
       setOwnerOtpSent(true);
+      if (data?.testOtp) {
+        setOwnerTestOtp(data.testOtp);
+        setOwnerOtp(data.testOtp);
+      } else {
+        setOwnerTestOtp(null);
+      }
     } catch (e) {
       Alert.alert('Error', e.response?.data?.message || 'Could not send OTP. Please try again.');
     } finally {
@@ -173,6 +192,9 @@ export default function LoginScreen() {
                 {driverOtpSent && (
                   <>
                     <Text style={styles.label}>6-Digit OTP</Text>
+                    {driverTestOtp && (
+                      <Text style={styles.testOtpBanner}>🧪 Test mode — OTP auto-filled: {driverTestOtp}</Text>
+                    )}
                     <PinInput length={6} value={driverOtp} onChange={setDriverOtp} autoFocus />
                   </>
                 )}
@@ -211,6 +233,9 @@ export default function LoginScreen() {
             {ownerOtpSent && (
               <>
                 <Text style={styles.label}>6-Digit OTP</Text>
+                {ownerTestOtp && (
+                  <Text style={styles.testOtpBanner}>🧪 Test mode — OTP auto-filled: {ownerTestOtp}</Text>
+                )}
                 <PinInput length={6} value={ownerOtp} onChange={setOwnerOtp} />
               </>
             )}
@@ -227,7 +252,7 @@ export default function LoginScreen() {
             </TouchableOpacity>
 
             {ownerOtpSent && (
-              <TouchableOpacity onPress={() => { setOwnerOtpSent(false); setOwnerOtp(''); }} style={{ marginTop: 12 }}>
+              <TouchableOpacity onPress={() => { setOwnerOtpSent(false); setOwnerOtp(''); setOwnerTestOtp(null); }} style={{ marginTop: 12 }}>
                 <Text style={styles.label}>Change phone number</Text>
               </TouchableOpacity>
             )}
@@ -339,5 +364,18 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     fontSize: 13,
     lineHeight: 19,
+  },
+  // TEMPORARY — REMOVE AFTER DLT APPROVAL.
+  testOtpBanner: {
+    backgroundColor: 'rgba(16,185,129,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.35)',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+    color: '#10b981',
+    fontSize: 12.5,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });
