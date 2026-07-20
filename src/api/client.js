@@ -79,6 +79,8 @@ export const assignmentsApi = {
   startDuty: (ambulanceId, deviceId, lat, lng) => api.post('/assignments/start-duty', { ambulanceId, deviceId, lat, lng }),
   endDuty: (lat, lng) => api.post('/assignments/end-duty', { lat, lng }),
   getMyActiveShift: () => api.get('/assignments/my-active'),
+  // Phase 4 — ambulances a driver can pick from at start-duty.
+  getAvailableAmbulances: () => api.get('/assignments/available-ambulances'),
 };
 
 // Owner OTP login (Phase 1 fleet-Owner model, separate from the User-model

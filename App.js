@@ -18,6 +18,7 @@ import DriverOnboardingScreen from './src/screens/DriverOnboardingScreen';
 import DriverDashboard from './src/screens/driver/DriverDashboard';
 import BookingTripScreen from './src/screens/driver/BookingTripScreen';
 import TripAssignedScreen from './src/screens/driver/TripAssignedScreen';
+import AmbulancePickerScreen from './src/screens/driver/AmbulancePickerScreen';
 import UnbindDeviceScreen from './src/screens/owner/UnbindDeviceScreen';
 import OwnerHomeScreen from './src/screens/owner/OwnerHomeScreen';
 import AddAmbulanceScreen from './src/screens/owner/AddAmbulanceScreen';
@@ -151,6 +152,7 @@ function AppNavigator() {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="DriverDashboard" component={DriverDashboard} />
         <Stack.Screen name="BookingTrip" component={BookingTripScreen} />
+        <Stack.Screen name="AmbulancePicker" component={AmbulancePickerScreen} />
         <Stack.Screen
           name="TripAssigned"
           component={TripAssignedScreen}

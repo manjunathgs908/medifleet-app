@@ -17,7 +17,6 @@ const DUTY_CHECK_LABELS = {
   backgroundLocation: 'Background location granted',
   batteryOk: 'Battery optimization disabled',
   approved: 'Driver approved',
-  ambulanceAssigned: 'Ambulance assigned',
   documentsValid: 'Documents uploaded',
   appUpdated: 'App up to date',
 };
@@ -81,6 +80,7 @@ export default function DriverDashboard({ navigation, route }) {
   // ── ON DUTY toggle + pre-go-online gate ──
   const [profile, setProfile] = useState(user);
   const [onDuty, setOnDuty] = useState(false);
+  const [activeAmbulance, setActiveAmbulance] = useState(null); // Phase 4 — which ambulance was picked at start-duty
   const [dutyLoading, setDutyLoading] = useState(false);
   const [checks, setChecks] = useState({});
   const [checksLoading, setChecksLoading] = useState(true);
@@ -115,7 +115,6 @@ export default function DriverDashboard({ navigation, route }) {
       backgroundLocation: !!backgroundPerm?.granted,
       batteryOk: Platform.OS === 'android' ? !batteryEnabled : true,
       approved: freshUser?.approvalStatus === 'approved',
-      ambulanceAssigned: !!freshUser?.assignedAmbulanceId,
       documentsValid: !!(
         freshUser?.driverDocuments?.dl?.url &&
         freshUser?.driverDocuments?.aadhaar?.url &&
@@ -133,19 +132,31 @@ export default function DriverDashboard({ navigation, route }) {
   }, [runDutyChecks]);
 
   // Reflects the real backend state (e.g. app was killed mid-shift) rather
-  // than assuming off-duty on every cold start.
+  // than assuming off-duty on every cold start. Also picks up which
+  // ambulance is currently assigned (Phase 4), so a killed-and-reopened
+  // app still shows it without needing to re-pick.
+  const refreshActiveShift = async () => {
+    try {
+      const { data } = await assignmentsApi.getMyActiveShift();
+      setOnDuty(!!data?.shift);
+      setActiveAmbulance(data?.ambulance || null);
+    } catch (err) {
+      // Silent — toggle just defaults to off; driver can still try to go online.
+    }
+  };
+
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const { data } = await assignmentsApi.getMyActiveShift();
-        if (mounted) setOnDuty(!!data?.shift);
-      } catch (err) {
-        // Silent — toggle just defaults to off; driver can still try to go online.
-      }
-    })();
-    return () => { mounted = false; };
+    refreshActiveShift();
   }, []);
+
+  // AmbulancePickerScreen navigates back here with dutyStarted:true after
+  // a successful start-duty — same pattern as confirmedTrip below.
+  useEffect(() => {
+    if (route?.params?.dutyStarted) {
+      refreshActiveShift();
+      navigation.setParams({ dutyStarted: undefined });
+    }
+  }, [route?.params?.dutyStarted]);
 
   const failingChecks = Object.keys(DUTY_CHECK_LABELS).filter(k => checks[k] === false);
   const allChecksPassed = !checksLoading && failingChecks.length === 0;
@@ -156,6 +167,7 @@ export default function DriverDashboard({ navigation, route }) {
       try {
         await assignmentsApi.endDuty(driverLoc?.latitude, driverLoc?.longitude);
         setOnDuty(false);
+        setActiveAmbulance(null);
       } catch (err) {
         Alert.alert('Error', err?.response?.data?.message || 'Could not end duty. Try again.');
       } finally {
@@ -175,17 +187,12 @@ export default function DriverDashboard({ navigation, route }) {
       return;
     }
 
-    setDutyLoading(true);
-    try {
-      const deviceId = await getDeviceId();
-      const ambulanceId = profile?.assignedAmbulanceId?._id || profile?.assignedAmbulanceId;
-      await assignmentsApi.startDuty(ambulanceId, deviceId, driverLoc?.latitude, driverLoc?.longitude);
-      setOnDuty(true);
-    } catch (err) {
-      Alert.alert('Error', err?.response?.data?.message || 'Could not start duty. Try again.');
-    } finally {
-      setDutyLoading(false);
-    }
+    // Phase 4 — a driver isn't fixed to one ambulance; they pick from
+    // whichever of their owner's ambulances are free right now.
+    navigation.navigate('AmbulancePicker', {
+      lat: driverLoc?.latitude,
+      lng: driverLoc?.longitude,
+    });
   }
 
   // ── Get initial location + start map ──
@@ -450,6 +457,11 @@ export default function DriverDashboard({ navigation, route }) {
         <View style={styles.dutyCard}>
           <View style={{ flex: 1 }}>
             <Text style={styles.dutyLabel}>{onDuty ? '🟢 ON DUTY' : '⚪ OFF DUTY'}</Text>
+            {onDuty && activeAmbulance && (
+              <Text style={styles.dutyAmbulance} numberOfLines={1}>
+                🚑 {activeAmbulance.registrationNumber} · {activeAmbulance.serviceTypeLabel || activeAmbulance.serviceType}
+              </Text>
+            )}
             {!onDuty && !checksLoading && failingChecks.length > 0 && (
               <Text style={styles.dutyWarn} numberOfLines={2}>
                 Needs: {failingChecks.map(k => DUTY_CHECK_LABELS[k]).join(', ')}
@@ -651,6 +663,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   dutyLabel: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
+  dutyAmbulance: { color: '#10b981', fontSize: 11.5, marginTop: 3, fontWeight: '600' },
   dutyWarn: { color: '#f59e0b', fontSize: 11, marginTop: 3, lineHeight: 15 },
 
   recenterBtn: {
