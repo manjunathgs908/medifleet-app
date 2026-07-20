@@ -6,48 +6,41 @@ import {
 import { useAuth } from '../context/AuthContext';
 import PinInput from '../components/PinInput';
 import { getDeviceId } from '../utils/device';
-import { ownerAuthApi } from '../api/client';
+import { authApi, ownerAuthApi } from '../api/client';
 
 export default function LoginScreen() {
-  const { login, loginWithPin, ownerLogin } = useAuth();
+  const { loginWithOtp, ownerLogin, deviceKicked, dismissDeviceKicked } = useAuth();
 
-  // Phase 4 — mode toggle. PIN Login is the default; Password Login is
-  // the pre-existing flow below, untouched, just gated behind the toggle.
-  // 'owner' is a minimal third tab for the Unbind Device tool.
-  const [mode, setMode] = useState('pin'); // 'pin' | 'password' | 'owner'
-
-  // Shared by both flows (existing behavior — was already the single
-  // loading flag used by handleLogin before this phase).
+  // Two actor types share this screen: Driver (phone+OTP) and Owner
+  // (phone+OTP, separate Owner model/session — untouched by this pass).
+  const [mode, setMode] = useState('driver'); // 'driver' | 'owner'
   const [loading, setLoading] = useState(false);
 
-  // ── Existing phone+password state/logic — unchanged ──────────────────
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
+  // ── Driver: phone + OTP ────────────────────────────────────────
+  const [driverPhone, setDriverPhone] = useState('');
+  const [driverOtp, setDriverOtp] = useState('');
+  const [driverOtpSent, setDriverOtpSent] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState(false);
 
-  const handleLogin = async () => {
-    if (!phone || !password) {
-      Alert.alert('Error', 'Please enter Phone and Password');
+  const handleSendDriverOtp = async () => {
+    if (driverPhone.trim().length !== 10) {
+      Alert.alert('Error', 'Please enter a valid 10-digit phone number.');
       return;
     }
     setLoading(true);
     try {
-      await login(phone, password);
+      await authApi.sendOtp(driverPhone.trim());
+      setDriverOtpSent(true);
     } catch (e) {
-      Alert.alert('Error', 'Invalid Phone or Password');
+      Alert.alert('Error', e.response?.data?.message || 'Could not send OTP. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  // ── New: Employee ID + PIN state/logic ────────────────────────────────
-  const [employeeId, setEmployeeId] = useState('');
-  const [pin, setPin] = useState('');
-  const [pendingApproval, setPendingApproval] = useState(false);
-  const [deviceBlocked, setDeviceBlocked] = useState(false);
-
-  const handlePinLogin = async () => {
-    if (!employeeId || pin.length !== 6) {
-      Alert.alert('Error', 'Please enter your Employee ID and 6-digit PIN.');
+  const handleVerifyDriverOtp = async () => {
+    if (driverOtp.length !== 6) {
+      Alert.alert('Error', 'Please enter the 6-digit OTP.');
       return;
     }
     setLoading(true);
@@ -57,35 +50,32 @@ export default function LoginScreen() {
         Alert.alert('Error', 'Could not identify this device. Please try again.');
         return;
       }
-      await loginWithPin(employeeId.trim(), pin, deviceId);
-      // App.js reacts to the updated user (ChangePin/Permissions/Dashboard) —
-      // no explicit navigation call needed here, same pattern handleLogin uses.
+      await loginWithOtp(driverPhone.trim(), driverOtp.trim(), deviceId);
+      // App.js reacts to the updated user (Permissions/Dashboard) — no
+      // explicit navigation call needed here, same pattern the other
+      // login flows on this screen use.
     } catch (e) {
       const message = e.response?.data?.message;
       if (message === 'Your account is pending approval.') {
         setPendingApproval(true);
-      } else if (message && message.startsWith('This device is not registered')) {
-        setDeviceBlocked(true);
       } else {
-        Alert.alert('Error', 'Invalid Employee ID or PIN');
+        Alert.alert('Error', message || 'Invalid or expired OTP.');
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const resetPinNotice = () => {
+  const resetDriverNotice = () => {
     setPendingApproval(false);
-    setDeviceBlocked(false);
-    setPin('');
+    setDriverOtp('');
+    setDriverOtpSent(false);
   };
 
-  const showingNotice = pendingApproval || deviceBlocked;
-
-  // ── New: Owner OTP login (minimal — Unbind Device tool only) ──────────
+  // ── Owner: phone + OTP (fleet-Owner model — untouched) ─────────
   const [ownerPhone, setOwnerPhone] = useState('');
   const [ownerOtp, setOwnerOtp] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
+  const [ownerOtpSent, setOwnerOtpSent] = useState(false);
 
   const handleSendOwnerOtp = async () => {
     if (!ownerPhone) {
@@ -95,7 +85,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await ownerAuthApi.sendOtp(ownerPhone.trim());
-      setOtpSent(true);
+      setOwnerOtpSent(true);
     } catch (e) {
       Alert.alert('Error', e.response?.data?.message || 'Could not send OTP. Please try again.');
     } finally {
@@ -126,18 +116,24 @@ export default function LoginScreen() {
         <Text style={styles.title}>🚑 MediFleet</Text>
         <Text style={styles.subtitle}>Ambulance CRM</Text>
 
+        {deviceKicked && (
+          <View style={[styles.noticeBox, styles.noticeBoxDanger]}>
+            <Text style={styles.noticeTitle}>🔒 Logged Out</Text>
+            <Text style={styles.noticeText}>
+              You were logged in on another device. Log in again here if this is your active phone.
+            </Text>
+            <TouchableOpacity onPress={dismissDeviceKicked} style={{ marginTop: 10 }}>
+              <Text style={styles.label}>Dismiss</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={styles.tabRow}>
           <TouchableOpacity
-            style={[styles.tabBtn, mode === 'pin' && styles.tabBtnActive]}
-            onPress={() => setMode('pin')}
+            style={[styles.tabBtn, mode === 'driver' && styles.tabBtnActive]}
+            onPress={() => setMode('driver')}
           >
-            <Text style={[styles.tabText, mode === 'pin' && styles.tabTextActive]}>PIN Login</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabBtn, mode === 'password' && styles.tabBtnActive]}
-            onPress={() => setMode('password')}
-          >
-            <Text style={[styles.tabText, mode === 'password' && styles.tabTextActive]}>Password Login</Text>
+            <Text style={[styles.tabText, mode === 'driver' && styles.tabTextActive]}>Driver</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabBtn, mode === 'owner' && styles.tabBtnActive]}
@@ -147,7 +143,7 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
-        {mode === 'pin' ? (
+        {mode === 'driver' ? (
           <>
             {pendingApproval && (
               <View style={styles.noticeBox}>
@@ -155,76 +151,50 @@ export default function LoginScreen() {
                 <Text style={styles.noticeText}>
                   Your account is waiting for your Owner/Admin to approve it. Please check back later.
                 </Text>
+                <TouchableOpacity onPress={resetDriverNotice} style={{ marginTop: 10 }}>
+                  <Text style={styles.label}>Try Again</Text>
+                </TouchableOpacity>
               </View>
             )}
 
-            {deviceBlocked && (
-              <View style={[styles.noticeBox, styles.noticeBoxDanger]}>
-                <Text style={styles.noticeTitle}>🔒 Device Not Registered</Text>
-                <Text style={styles.noticeText}>
-                  This device is not registered for this ambulance. Contact your Owner/Admin to unbind
-                  your previous device.
-                </Text>
-              </View>
-            )}
-
-            {!showingNotice && (
+            {!pendingApproval && (
               <>
                 <TextInput
                   style={styles.input}
-                  placeholder="Employee ID"
+                  placeholder="Phone Number"
                   placeholderTextColor="#888"
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  value={employeeId}
-                  onChangeText={setEmployeeId}
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                  editable={!driverOtpSent}
+                  value={driverPhone}
+                  onChangeText={(t) => setDriverPhone(t.replace(/[^0-9]/g, ''))}
                 />
-                <Text style={styles.label}>6-Digit PIN</Text>
-                <PinInput length={6} value={pin} onChange={setPin} />
+
+                {driverOtpSent && (
+                  <>
+                    <Text style={styles.label}>6-Digit OTP</Text>
+                    <PinInput length={6} value={driverOtp} onChange={setDriverOtp} autoFocus />
+                  </>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.button, { marginTop: driverOtpSent ? 20 : 8 }, loading && { opacity: 0.6 }]}
+                  onPress={driverOtpSent ? handleVerifyDriverOtp : handleSendDriverOtp}
+                  disabled={loading}
+                >
+                  {loading
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={styles.buttonText}>{driverOtpSent ? 'Verify OTP →' : 'Send OTP'}</Text>
+                  }
+                </TouchableOpacity>
+
+                {driverOtpSent && (
+                  <TouchableOpacity onPress={resetDriverNotice} style={{ marginTop: 12 }}>
+                    <Text style={styles.label}>Change phone number</Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
-
-            <TouchableOpacity
-              style={[styles.button, { marginTop: 20 }, loading && { opacity: 0.6 }]}
-              onPress={showingNotice ? resetPinNotice : handlePinLogin}
-              disabled={loading}
-            >
-              {loading
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.buttonText}>{showingNotice ? 'Try Again' : 'Sign In →'}</Text>
-              }
-            </TouchableOpacity>
-          </>
-        ) : mode === 'password' ? (
-          <>
-            <TextInput
-              style={styles.input}
-              placeholder="Phone Number"
-              placeholderTextColor="#888"
-              keyboardType="phone-pad"
-              value={phone}
-              onChangeText={setPhone}
-            />
-
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              placeholderTextColor="#888"
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
-
-            <TouchableOpacity
-              style={styles.button}
-              onPress={handleLogin}
-              disabled={loading}
-            >
-              {loading
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.buttonText}>Sign In →</Text>
-              }
-            </TouchableOpacity>
           </>
         ) : (
           <>
@@ -233,12 +203,12 @@ export default function LoginScreen() {
               placeholder="Phone Number"
               placeholderTextColor="#888"
               keyboardType="phone-pad"
-              editable={!otpSent}
+              editable={!ownerOtpSent}
               value={ownerPhone}
               onChangeText={setOwnerPhone}
             />
 
-            {otpSent && (
+            {ownerOtpSent && (
               <>
                 <Text style={styles.label}>6-Digit OTP</Text>
                 <PinInput length={6} value={ownerOtp} onChange={setOwnerOtp} />
@@ -246,18 +216,18 @@ export default function LoginScreen() {
             )}
 
             <TouchableOpacity
-              style={[styles.button, { marginTop: otpSent ? 20 : 8 }, loading && { opacity: 0.6 }]}
-              onPress={otpSent ? handleVerifyOwnerOtp : handleSendOwnerOtp}
+              style={[styles.button, { marginTop: ownerOtpSent ? 20 : 8 }, loading && { opacity: 0.6 }]}
+              onPress={ownerOtpSent ? handleVerifyOwnerOtp : handleSendOwnerOtp}
               disabled={loading}
             >
               {loading
                 ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.buttonText}>{otpSent ? 'Verify OTP →' : 'Send OTP'}</Text>
+                : <Text style={styles.buttonText}>{ownerOtpSent ? 'Verify OTP →' : 'Send OTP'}</Text>
               }
             </TouchableOpacity>
 
-            {otpSent && (
-              <TouchableOpacity onPress={() => { setOtpSent(false); setOwnerOtp(''); }} style={{ marginTop: 12 }}>
+            {ownerOtpSent && (
+              <TouchableOpacity onPress={() => { setOwnerOtpSent(false); setOwnerOtp(''); }} style={{ marginTop: 12 }}>
                 <Text style={styles.label}>Change phone number</Text>
               </TouchableOpacity>
             )}
@@ -353,7 +323,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(245,158,11,0.35)',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 8,
+    marginBottom: 16,
   },
   noticeBoxDanger: {
     backgroundColor: 'rgba(239,68,68,0.12)',

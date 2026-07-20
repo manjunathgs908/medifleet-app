@@ -35,7 +35,6 @@ export default function DriverProfileCheckScreen({ onDone }) {
 
   const fields = [
     { label: 'Driver Name', value: profile?.name || '—' },
-    { label: 'Employee ID', value: profile?.employeeId || '—' },
     { label: 'Ambulance Number', value: ambulanceNumber },
     { label: 'Phone', value: profile?.phone || '—' },
   ];

@@ -15,11 +15,32 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+// One-active-device enforcement (see middleware/auth.js's protect()): once
+// a different phone logs in, this phone's next API call gets a 401 with
+// code:'DEVICE_MISMATCH'. client.js is a plain module (no React state of
+// its own), so it can't clear the session/navigate itself — it just calls
+// whatever handler AuthContext registered on mount, which owns the actual
+// AsyncStorage clear + setUser(null) + the "logged in elsewhere" banner.
+let sessionKickedHandler = null;
+export const setSessionKickedHandler = (fn) => { sessionKickedHandler = fn; };
+
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401 && err.response?.data?.code === 'DEVICE_MISMATCH' && sessionKickedHandler) {
+      sessionKickedHandler();
+    }
+    return Promise.reject(err);
+  }
+);
+
 export default api;
 
 export const authApi = {
   login: (phone, password) => api.post('/auth/login', { phone, password }),
   me: () => api.get('/auth/me'),
+  sendOtp: (phone) => api.post('/auth/send-otp', { phone }),
+  verifyOtp: (phone, otp, deviceId) => api.post('/auth/verify-otp', { phone, otp, deviceId }),
 };
 
 export const attendanceApi = {

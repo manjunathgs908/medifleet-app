@@ -2,9 +2,9 @@ import React, { useRef } from 'react';
 import { View, TextInput, StyleSheet } from 'react-native';
 
 /**
- * Boxed, masked numeric PIN entry — plain RN components, no extra deps.
- * Shared by LoginScreen's PIN-login tab and ChangePinScreen (Phase 4 of
- * the driver-auth redesign), which each render one or more of these.
+ * Boxed, masked numeric entry — plain RN components, no extra deps.
+ * Originally built for PIN entry, now reused by LoginScreen's Driver and
+ * Owner tabs for 6-digit OTP entry.
  */
 export default function PinInput({ length = 6, value, onChange, autoFocus }) {
   const refs = useRef([]);

@@ -9,7 +9,6 @@ import * as Updates from 'expo-updates';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import LoginScreen from './src/screens/LoginScreen';
-import ChangePinScreen from './src/screens/ChangePinScreen';
 import DeviceVerificationScreen from './src/screens/DeviceVerificationScreen';
 import PermissionsScreen from './src/screens/PermissionsScreen';
 import BatteryOptimizationScreen from './src/screens/BatteryOptimizationScreen';
@@ -26,9 +25,9 @@ function AppNavigator() {
   const { user, loading } = useAuth();
 
   // Full driver-onboarding flow (extends the Phase 4 permissions gate):
-  // Welcome → Login(existing) → ChangePin(if forced) → DeviceVerification →
-  // Permissions → BatteryOptimization(Android) → Terms → DriverProfileCheck
-  // → Dashboard. Each step is a one-time escape hatch for this app session,
+  // Welcome → Login(existing) → DeviceVerification → Permissions →
+  // BatteryOptimization(Android) → Terms → DriverProfileCheck → Dashboard.
+  // Each step is a one-time escape hatch for this app session,
   // same pattern as the original permissionsConfirmed flag below — once a
   // screen calls onDone, that step is skipped for the rest of the session.
   const [welcomeDone, setWelcomeDone] = useState(false);
@@ -77,14 +76,6 @@ function AppNavigator() {
   }
 
   if (user.role === 'driver') {
-    if (user.pinChangeRequired) {
-      return (
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="ChangePin" component={ChangePinScreen} />
-        </Stack.Navigator>
-      );
-    }
-
     if (!deviceVerified) {
       return (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -152,11 +143,11 @@ function AppNavigator() {
   }
 
   // Owner OTP login (fleet-Owner model) — minimal single-screen tool, no
-  // onboarding gate needed. Note: a User-model owner logging in via the
-  // Password tab also gets role:'owner' and would land here too, but their
-  // token is protect-gated, not protectOwner-gated, so UnbindDeviceScreen's
-  // API calls would fail for them — this tool is only reachable in practice
-  // via LoginScreen's dedicated Owner (OTP) tab.
+  // onboarding gate needed. LoginScreen's Password tab was dropped when
+  // driver login moved to phone+OTP; the phone+password flow (authApi.login,
+  // role:'owner'/'telecaller' User-model staff) is still reachable via
+  // AuthContext.login() if something calls it directly, but nothing on
+  // this screen does anymore — only the dedicated Owner (OTP) tab reaches here.
   if (user.role === 'owner') {
     return (
       <Stack.Navigator screenOptions={{ headerShown: false }}>

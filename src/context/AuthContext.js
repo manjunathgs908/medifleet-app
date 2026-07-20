@@ -1,16 +1,29 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authApi, driverAuthApi, ownerAuthApi } from '../api/client';
+import { authApi, ownerAuthApi, setSessionKickedHandler } from '../api/client';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [deviceKicked, setDeviceKicked] = useState(false);
 
   useEffect(() => {
     loadUser();
   }, []);
+
+  // Registered once — client.js calls this from its response interceptor
+  // whenever a 401 DEVICE_MISMATCH comes back (a newer login elsewhere).
+  useEffect(() => {
+    setSessionKickedHandler(async () => {
+      await AsyncStorage.clear();
+      setUser(null);
+      setDeviceKicked(true);
+    });
+  }, []);
+
+  const dismissDeviceKicked = () => setDeviceKicked(false);
 
   const loadUser = async () => {
     try {
@@ -40,30 +53,19 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  // Phase 4 — Employee ID + PIN login (driver-auth), additive alongside
-  // the existing phone+password login above. Same token-storage pattern;
-  // pinChangeRequired is merged into the stored user so App.js can react
-  // to it (and so it survives an app restart before the PIN is changed).
-  const loginWithPin = async (employeeId, pin, deviceId) => {
-    const { data } = await driverAuthApi.loginWithPin(employeeId, pin, deviceId);
-    const userWithPinFlag = { ...data.user, pinChangeRequired: data.pinChangeRequired };
+  // Driver login — phone + OTP (replaces the removed Employee ID + PIN
+  // flow). Same token-storage pattern as the other login functions.
+  const loginWithOtp = async (phone, otp, deviceId) => {
+    const { data } = await authApi.verifyOtp(phone, otp, deviceId);
     await AsyncStorage.setItem('accessToken', data.accessToken);
     await AsyncStorage.setItem('refreshToken', data.refreshToken);
-    await AsyncStorage.setItem('user', JSON.stringify(userWithPinFlag));
-    setUser(userWithPinFlag);
-    return userWithPinFlag;
-  };
-
-  // Called by ChangePinScreen after a successful PIN change, so App.js's
-  // navigation moves on from the forced ChangePin screen.
-  const completePinChange = async () => {
-    const updated = { ...user, pinChangeRequired: false };
-    await AsyncStorage.setItem('user', JSON.stringify(updated));
-    setUser(updated);
+    await AsyncStorage.setItem('user', JSON.stringify(data.user));
+    setUser(data.user);
+    return data.user;
   };
 
   // Owner OTP login (fleet-Owner model, Phase 1) — additive, same
-  // token-storage pattern as loginWithPin above. Note: this is a
+  // token-storage pattern as loginWithOtp above. Note: this is a
   // completely separate session/collection from the User-model owner
   // login() above, even though both end up with user.role === 'owner'.
   const ownerLogin = async (phone, otp) => {
@@ -76,7 +78,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, loginWithPin, completePinChange, ownerLogin }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, loginWithOtp, ownerLogin, deviceKicked, dismissDeviceKicked }}>
       {children}
     </AuthContext.Provider>
   );
