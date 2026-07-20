@@ -68,7 +68,19 @@ export const AuthProvider = ({ children }) => {
     return data.user;
   };
 
+  // Phase 5 — logout safety rule. Owner sessions (a separate model with
+  // no duty/trip concept) skip straight to the client-only clear, same
+  // as before. Driver sessions must round-trip through the backend first
+  // — it throws (403) if the driver is on duty or has an active trip,
+  // in which case AsyncStorage is deliberately left untouched and the
+  // caller (the screen's logout button) is expected to catch and show
+  // the block reason. This is a distinct path from the DEVICE_MISMATCH
+  // forced-kick in client.js's interceptor, which never calls this
+  // function and must still fire regardless of duty state.
   const logout = async () => {
+    if (user?.role === 'driver') {
+      await authApi.logout();
+    }
     await AsyncStorage.clear();
     setUser(null);
   };

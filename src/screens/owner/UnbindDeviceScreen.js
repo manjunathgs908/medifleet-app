@@ -12,6 +12,14 @@ import { ownerDriverApi } from '../../api/client';
  */
 export default function UnbindDeviceScreen() {
   const { user, logout } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (err) {
+      Alert.alert('Cannot Log Out', err?.response?.data?.message || 'Please try again.');
+    }
+  };
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -95,7 +103,7 @@ export default function UnbindDeviceScreen() {
           <Text style={styles.title}>Unbind Device</Text>
           <Text style={styles.subtitle}>{user?.name}</Text>
         </View>
-        <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
+        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
           <Text style={styles.logoutTxt}>Logout</Text>
         </TouchableOpacity>
       </View>

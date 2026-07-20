@@ -48,6 +48,16 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 
 export default function DriverDashboard({ navigation, route }) {
   const { user, logout } = useAuth();
+
+  // Logout is blocked server-side while on duty or on an active trip —
+  // show why instead of silently doing nothing.
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (err) {
+      Alert.alert('Cannot Log Out', err?.response?.data?.message || 'Please try again.');
+    }
+  };
   const mapRef = useRef(null);
   const intervalRef = useRef(null);
   const tripIntervalRef = useRef(null);
@@ -449,7 +459,7 @@ export default function DriverDashboard({ navigation, route }) {
             <Text style={styles.welcome}>Hello, {user?.name}!</Text>
             <Text style={styles.role}>Driver</Text>
           </View>
-          <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
             <Text style={styles.logoutTxt}>Logout</Text>
           </TouchableOpacity>
         </View>

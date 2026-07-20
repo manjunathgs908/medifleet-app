@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 
 /**
@@ -10,6 +10,14 @@ import { useAuth } from '../../context/AuthContext';
 export default function OwnerHomeScreen({ navigation }) {
   const { user, logout } = useAuth();
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (err) {
+      Alert.alert('Cannot Log Out', err?.response?.data?.message || 'Please try again.');
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
@@ -17,7 +25,7 @@ export default function OwnerHomeScreen({ navigation }) {
           <Text style={styles.title}>MediFleet Owner</Text>
           <Text style={styles.subtitle}>{user?.name}</Text>
         </View>
-        <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
+        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
           <Text style={styles.logoutTxt}>Logout</Text>
         </TouchableOpacity>
       </View>

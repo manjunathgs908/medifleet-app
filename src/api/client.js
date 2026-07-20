@@ -41,6 +41,8 @@ export const authApi = {
   me: () => api.get('/auth/me'),
   sendOtp: (phone) => api.post('/auth/send-otp', { phone }),
   verifyOtp: (phone, otp, deviceId) => api.post('/auth/verify-otp', { phone, otp, deviceId }),
+  // Phase 5 — server-enforced logout (blocks a driver mid-duty/mid-trip).
+  logout: () => api.post('/auth/logout'),
 };
 
 export const attendanceApi = {

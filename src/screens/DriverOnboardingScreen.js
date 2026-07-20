@@ -27,6 +27,14 @@ export default function DriverOnboardingScreen() {
   const { user, logout, refreshUser } = useAuth();
   const intervalRef = useRef(null);
 
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (err) {
+      Alert.alert('Cannot Log Out', err?.response?.data?.message || 'Please try again.');
+    }
+  };
+
   const [docs, setDocs] = useState(() => buildInitialDocs(user));
 
   useEffect(() => {
@@ -81,7 +89,7 @@ export default function DriverOnboardingScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.topBar}>
         <Text style={styles.title}>Driver Verification</Text>
-        <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
+        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
           <Text style={styles.logoutTxt}>Logout</Text>
         </TouchableOpacity>
       </View>
