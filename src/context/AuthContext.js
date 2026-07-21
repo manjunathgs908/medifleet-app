@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authApi, ownerAuthApi, setSessionKickedHandler } from '../api/client';
+import { authApi, ownerAuthApi, assignmentsApi, setSessionKickedHandler } from '../api/client';
+
+const OWNER_BACKUP_KEY = 'ownerBackupSession'; // holds the owner's own tokens while acting as driver
 
 const AuthContext = createContext(null);
 
@@ -109,8 +111,68 @@ export const AuthProvider = ({ children }) => {
     return data.owner;
   };
 
+  // Owner-as-driver — a small operator drives their own fleet. Deliberately
+  // does NOT flip the active session (setUser) until start-duty has
+  // actually succeeded: if the owner cancels the ambulance picker, or
+  // another driver wins the race for that ambulance, the owner must never
+  // be left stuck as an ambulance-less "driver" with no easy way back.
+  const startDutyAsOwner = async (ambulanceId, deviceId, lat, lng) => {
+    // 1. Mint (or reuse) the shadow driver session — pure data fetch, no
+    //    session/state change yet.
+    const { data: driverAuth } = await ownerAuthApi.actAsDriver(deviceId);
+
+    // 2. Snapshot the currently-active (owner) session so it can be
+    //    restored either on failure below, or later on end-duty.
+    const ownerAccessToken  = await AsyncStorage.getItem('accessToken');
+    const ownerRefreshToken = await AsyncStorage.getItem('refreshToken');
+    const ownerUserRaw      = await AsyncStorage.getItem('user');
+
+    // 3. Swap ONLY the access token so start-duty authenticates as the
+    //    driver — `user` state is untouched, so the UI shows no change yet.
+    await AsyncStorage.setItem('accessToken', driverAuth.accessToken);
+
+    try {
+      await assignmentsApi.startDuty(ambulanceId, deviceId, lat, lng);
+    } catch (err) {
+      // Roll back invisibly — restore the owner's token, never called
+      // setUser, so nothing the owner sees ever changed.
+      await AsyncStorage.setItem('accessToken', ownerAccessToken);
+      throw err;
+    }
+
+    // 4. Duty actually started — commit the full swap, backing up the
+    //    owner session first so restoreOwnerSession() can bring it back.
+    await AsyncStorage.setItem(OWNER_BACKUP_KEY, JSON.stringify({
+      accessToken : ownerAccessToken,
+      refreshToken: ownerRefreshToken,
+      user        : ownerUserRaw,
+    }));
+    await AsyncStorage.setItem('refreshToken', driverAuth.refreshToken);
+    await AsyncStorage.setItem('user', JSON.stringify(driverAuth.user));
+    setUser(driverAuth.user);
+  };
+
+  // Called from DriverDashboard's end-duty success path when
+  // user.isOwnerSelf is true — swaps the app back to the owner identity,
+  // which App.js's role-based routing then renders automatically.
+  const restoreOwnerSession = async () => {
+    const backupRaw = await AsyncStorage.getItem(OWNER_BACKUP_KEY);
+    if (!backupRaw) {
+      // Shouldn't happen, but fail safe rather than stranding them in a
+      // half-swapped state.
+      await logout();
+      return;
+    }
+    const backup = JSON.parse(backupRaw);
+    await AsyncStorage.setItem('accessToken', backup.accessToken);
+    await AsyncStorage.setItem('refreshToken', backup.refreshToken);
+    await AsyncStorage.setItem('user', backup.user);
+    await AsyncStorage.removeItem(OWNER_BACKUP_KEY);
+    setUser(JSON.parse(backup.user));
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, loginWithOtp, ownerLogin, deviceKicked, dismissDeviceKicked, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, loginWithOtp, ownerLogin, deviceKicked, dismissDeviceKicked, refreshUser, startDutyAsOwner, restoreOwnerSession }}>
       {children}
     </AuthContext.Provider>
   );

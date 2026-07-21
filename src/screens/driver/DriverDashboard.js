@@ -47,7 +47,7 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 }
 
 export default function DriverDashboard({ navigation, route }) {
-  const { user, logout } = useAuth();
+  const { user, logout, restoreOwnerSession } = useAuth();
 
   // Logout is blocked server-side while on duty or on an active trip —
   // show why instead of silently doing nothing.
@@ -177,6 +177,13 @@ export default function DriverDashboard({ navigation, route }) {
       setDutyLoading(true);
       try {
         await assignmentsApi.endDuty(driverLoc?.latitude, driverLoc?.longitude);
+        if (user?.isOwnerSelf) {
+          // This "driver" is actually the owner acting as themselves —
+          // swap back to their real owner session instead of staying in
+          // the driver flow off-duty with nothing to do.
+          await restoreOwnerSession();
+          return;
+        }
         setOnDuty(false);
         setActiveAmbulance(null);
       } catch (err) {

@@ -26,6 +26,7 @@ import MyAmbulancesScreen from './src/screens/owner/MyAmbulancesScreen';
 import AmbulanceDetailScreen from './src/screens/owner/AmbulanceDetailScreen';
 import PendingDriversScreen from './src/screens/owner/PendingDriversScreen';
 import OwnerDashboardScreen from './src/screens/owner/OwnerDashboardScreen';
+import DriveAmbulanceScreen from './src/screens/owner/DriveAmbulanceScreen';
 import OwnerTripDetailScreen from './src/screens/owner/OwnerTripDetailScreen';
 
 const Stack = createNativeStackNavigator();
@@ -181,6 +182,7 @@ function AppNavigator() {
         <Stack.Screen name="AmbulanceDetail" component={AmbulanceDetailScreen} />
         <Stack.Screen name="PendingDrivers" component={PendingDriversScreen} />
         <Stack.Screen name="OwnerDashboard" component={OwnerDashboardScreen} />
+        <Stack.Screen name="DriveAmbulance" component={DriveAmbulanceScreen} />
         <Stack.Screen name="OwnerTripDetail" component={OwnerTripDetailScreen} />
         <Stack.Screen name="UnbindDevice" component={UnbindDeviceScreen} />
       </Stack.Navigator>

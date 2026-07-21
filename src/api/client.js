@@ -92,6 +92,10 @@ export const assignmentsApi = {
 export const ownerAuthApi = {
   sendOtp: (phone, name) => api.post('/owners/send-otp', { phone, name }),
   verifyOtp: (phone, otp) => api.post('/owners/verify-otp', { phone, otp }),
+  // Mints a driver token for the owner's own shadow driver identity —
+  // lets a small operator drive their own fleet through the normal
+  // driver flow.
+  actAsDriver: (deviceId) => api.post('/owners/act-as-driver', { deviceId }),
 };
 
 // Owner-facing driver device management + approval (Unbind Device tool,
