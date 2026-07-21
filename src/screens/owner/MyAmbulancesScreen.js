@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { ambulancesApi } from '../../api/client';
 import { AMBULANCE_DOC_TYPES } from '../../constants/ambulanceServiceTypes';
 
@@ -28,9 +29,14 @@ export default function MyAmbulancesScreen({ navigation }) {
     }
   }, []);
 
-  useEffect(() => {
-    (async () => { setLoading(true); await load(); setLoading(false); })();
-  }, [load]);
+  // useFocusEffect (not a plain mount-only useEffect) so returning from
+  // AmbulanceDetailScreen after adding a photo/document refreshes this
+  // list's counts instead of showing stale data until a manual pull-down.
+  useFocusEffect(
+    useCallback(() => {
+      (async () => { setLoading(true); await load(); setLoading(false); })();
+    }, [load])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -40,7 +46,11 @@ export default function MyAmbulancesScreen({ navigation }) {
 
   function renderItem({ item }) {
     return (
-      <View style={styles.card}>
+      <TouchableOpacity
+        style={styles.card}
+        activeOpacity={0.7}
+        onPress={() => navigation.navigate('AmbulanceDetail', { ambulanceId: item._id })}
+      >
         <View style={{ flex: 1 }}>
           <Text style={styles.regNumber}>{item.registrationNumber}</Text>
           <Text style={styles.typeLabel}>{item.serviceTypeLabel || item.serviceType}</Text>
@@ -58,7 +68,7 @@ export default function MyAmbulancesScreen({ navigation }) {
         <View style={[styles.statusBadge, { backgroundColor: `${STATUS_COLORS[item.status] || '#6b7280'}22`, borderColor: `${STATUS_COLORS[item.status] || '#6b7280'}55` }]}>
           <Text style={[styles.statusTxt, { color: STATUS_COLORS[item.status] || '#9ca3af' }]}>{item.status}</Text>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   }
 

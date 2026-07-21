@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, ActivityIndicator, Alert, Image,
+  StyleSheet, ActivityIndicator, Alert,
 } from 'react-native';
 import { ambulancesApi } from '../../api/client';
-import { pickImageBase64 } from '../../utils/pickImage';
-import { AMBULANCE_SERVICE_TYPES, AMBULANCE_DOC_TYPES } from '../../constants/ambulanceServiceTypes';
-
-const EMPTY_DOC = { number: '', expiryDate: '', url: null, uploading: false };
+import { AMBULANCE_SERVICE_TYPES } from '../../constants/ambulanceServiceTypes';
+import AmbulancePhotosAndDocs from '../../components/AmbulancePhotosAndDocs';
 
 export default function AddAmbulanceScreen({ navigation }) {
   const [step, setStep] = useState('form'); // 'form' -> basic fields, then 'docs' once created
@@ -16,13 +14,6 @@ export default function AddAmbulanceScreen({ navigation }) {
   const [serviceType, setServiceType] = useState(null);
   const [year, setYear] = useState('');
   const [creating, setCreating] = useState(false);
-
-  const [photos, setPhotos] = useState([]);
-  const [addingPhoto, setAddingPhoto] = useState(false);
-
-  const [docs, setDocs] = useState(
-    Object.fromEntries(AMBULANCE_DOC_TYPES.map(d => [d.docType, { ...EMPTY_DOC }]))
-  );
 
   const handleCreate = async () => {
     if (!regNumber.trim() || !serviceType) {
@@ -42,54 +33,6 @@ export default function AddAmbulanceScreen({ navigation }) {
       Alert.alert('Error', e.response?.data?.message || 'Could not create ambulance.');
     } finally {
       setCreating(false);
-    }
-  };
-
-  const handleAddPhoto = async () => {
-    const base64 = await pickImageBase64();
-    if (!base64) return;
-    setAddingPhoto(true);
-    try {
-      const { data } = await ambulancesApi.addPhoto(ambulanceId, base64);
-      setPhotos(data.photos || []);
-    } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Could not upload photo.');
-    } finally {
-      setAddingPhoto(false);
-    }
-  };
-
-  const setDocField = (docType, patch) => {
-    setDocs(d => ({ ...d, [docType]: { ...d[docType], ...patch } }));
-  };
-
-  const saveDocFields = async (docType) => {
-    const { number, expiryDate } = docs[docType];
-    try {
-      await ambulancesApi.uploadDocument(ambulanceId, docType, {
-        number: number || undefined,
-        expiryDate: expiryDate || undefined,
-      });
-    } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Could not save document details.');
-    }
-  };
-
-  const handleDocPhoto = async (docType) => {
-    const base64 = await pickImageBase64();
-    if (!base64) return;
-    setDocField(docType, { uploading: true });
-    try {
-      const { number, expiryDate } = docs[docType];
-      const { data } = await ambulancesApi.uploadDocument(ambulanceId, docType, {
-        base64,
-        number: number || undefined,
-        expiryDate: expiryDate || undefined,
-      });
-      setDocField(docType, { uploading: false, url: data.documents?.[docType]?.url || null });
-    } catch (e) {
-      setDocField(docType, { uploading: false });
-      Alert.alert('Error', e.response?.data?.message || 'Could not upload document.');
     }
   };
 
@@ -142,54 +85,9 @@ export default function AddAmbulanceScreen({ navigation }) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>✅ {regNumber}</Text>
-      <Text style={styles.subtitle}>Add photos and documents (optional — can be done later too).</Text>
+      <Text style={styles.subtitle}>Add photos and documents (optional — can be done later too, from My Ambulances).</Text>
 
-      <Text style={styles.label}>Photos</Text>
-      <View style={styles.photoRow}>
-        {photos.map((p, i) => (
-          <Image key={i} source={{ uri: p.url }} style={styles.photoThumb} />
-        ))}
-        <TouchableOpacity style={styles.addPhotoBtn} onPress={handleAddPhoto} disabled={addingPhoto}>
-          {addingPhoto ? <ActivityIndicator color="#10b981" /> : <Text style={styles.addPhotoTxt}>+ Add</Text>}
-        </TouchableOpacity>
-      </View>
-
-      <Text style={[styles.label, { marginTop: 20 }]}>Documents</Text>
-      {AMBULANCE_DOC_TYPES.map(({ docType, label }) => {
-        const d = docs[docType];
-        return (
-          <View key={docType} style={styles.docCard}>
-            <View style={styles.docHeader}>
-              <Text style={styles.docLabel}>{label}</Text>
-              {d.url ? <Text style={styles.docStatusOk}>Uploaded ✓</Text> : <Text style={styles.docStatusMissing}>Not uploaded</Text>}
-            </View>
-            <View style={styles.docRow}>
-              <TextInput
-                style={[styles.input, styles.docInput]}
-                placeholder="Document number (optional)"
-                placeholderTextColor="#6b7280"
-                value={d.number}
-                onChangeText={(t) => setDocField(docType, { number: t })}
-                onBlur={() => saveDocFields(docType)}
-              />
-              <TextInput
-                style={[styles.input, styles.docInput]}
-                placeholder="Expiry (YYYY-MM-DD)"
-                placeholderTextColor="#6b7280"
-                value={d.expiryDate}
-                onChangeText={(t) => setDocField(docType, { expiryDate: t })}
-                onBlur={() => saveDocFields(docType)}
-              />
-            </View>
-            <TouchableOpacity style={styles.docUploadBtn} onPress={() => handleDocPhoto(docType)} disabled={d.uploading}>
-              {d.uploading
-                ? <ActivityIndicator color="#10b981" size="small" />
-                : <Text style={styles.docUploadTxt}>{d.url ? 'Replace Photo' : '📷 Upload Photo'}</Text>
-              }
-            </TouchableOpacity>
-          </View>
-        );
-      })}
+      <AmbulancePhotosAndDocs ambulanceId={ambulanceId} initialPhotos={[]} initialDocuments={{}} />
 
       <TouchableOpacity style={[styles.button, { marginTop: 22 }]} onPress={() => navigation.navigate('MyAmbulances')}>
         <Text style={styles.buttonText}>Done</Text>
@@ -219,28 +117,4 @@ const styles = StyleSheet.create({
 
   button: { backgroundColor: '#10b981', borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 8 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-
-  photoRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
-  photoThumb: { width: 72, height: 72, borderRadius: 10, backgroundColor: '#1f2937' },
-  addPhotoBtn: {
-    width: 72, height: 72, borderRadius: 10, backgroundColor: '#111827',
-    borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)', alignItems: 'center', justifyContent: 'center',
-  },
-  addPhotoTxt: { color: '#10b981', fontSize: 12, fontWeight: 'bold' },
-
-  docCard: {
-    backgroundColor: '#111827', borderRadius: 12, padding: 14, marginBottom: 12,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
-  },
-  docHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  docLabel: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
-  docStatusOk: { color: '#10b981', fontSize: 11.5, fontWeight: 'bold' },
-  docStatusMissing: { color: '#6b7280', fontSize: 11.5 },
-  docRow: { flexDirection: 'row', gap: 10 },
-  docInput: { flex: 1, marginBottom: 10, paddingVertical: 11, fontSize: 13 },
-  docUploadBtn: {
-    backgroundColor: 'rgba(16,185,129,0.1)', borderRadius: 8, paddingVertical: 10,
-    alignItems: 'center', borderWidth: 1, borderColor: 'rgba(16,185,129,0.25)',
-  },
-  docUploadTxt: { color: '#10b981', fontSize: 13, fontWeight: 'bold' },
 });
