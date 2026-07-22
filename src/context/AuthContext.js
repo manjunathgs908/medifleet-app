@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import { authApi, ownerAuthApi, unifiedAuthApi, assignmentsApi, setSessionKickedHandler } from '../api/client';
 
 const OWNER_BACKUP_KEY = 'ownerBackupSession'; // holds the owner's own tokens while acting as driver
@@ -11,8 +12,27 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [deviceKicked, setDeviceKicked] = useState(false);
 
+  // Always holds the latest `user` — the AppState listener below is
+  // registered once on mount, so its closure would otherwise only ever
+  // see whatever `user` was at that first render (null).
+  const userRef = useRef(null);
+  useEffect(() => { userRef.current = user; }, [user]);
+
   useEffect(() => {
     loadUser();
+  }, []);
+
+  // Same self-healing refresh loadUser() does on cold start, but for the
+  // resume-from-background case too — approvalStatus/kycStatus approved
+  // while the app was merely backgrounded (not killed) would otherwise
+  // stay stale until whatever screen-specific polling loop next fires.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && userRef.current) {
+        refreshUser(userRef.current).catch(() => {});
+      }
+    });
+    return () => subscription.remove();
   }, []);
 
   // Registered once — client.js calls this from its response interceptor
@@ -34,12 +54,17 @@ export const AuthProvider = ({ children }) => {
   // the app notices and moves on once approved, without requiring a
   // fresh login. Branches on role since the two onboarding flows are
   // backed by entirely separate collections/endpoints (User vs Owner).
-  const refreshUser = async () => {
+  // `baseUser` defaults to current state, but loadUser() below passes the
+  // freshly-parsed AsyncStorage value explicitly — right after a cold
+  // start, `user` state hasn't committed yet in this closure, so relying
+  // on it here would silently skip the owner branch (or fetch nothing)
+  // for the very first refresh of a session.
+  const refreshUser = async (baseUser = user) => {
     try {
-      const { data } = user?.role === 'owner' ? await ownerAuthApi.getMe() : await authApi.me();
+      const { data } = baseUser?.role === 'owner' ? await ownerAuthApi.getMe() : await authApi.me();
       const fresh = data?.owner || data?.user;
       if (fresh) {
-        const merged = { ...user, ...fresh };
+        const merged = { ...baseUser, ...fresh };
         await AsyncStorage.setItem('user', JSON.stringify(merged));
         setUser(merged);
         return merged;
@@ -47,7 +72,7 @@ export const AuthProvider = ({ children }) => {
     } catch (e) {
       // Silent — caller just keeps whatever's already cached.
     }
-    return user;
+    return baseUser;
   };
 
   const loadUser = async () => {
@@ -55,7 +80,15 @@ export const AuthProvider = ({ children }) => {
       const token = await AsyncStorage.getItem('accessToken');
       const savedUser = await AsyncStorage.getItem('user');
       if (token && savedUser) {
-        setUser(JSON.parse(savedUser));
+        const parsed = JSON.parse(savedUser);
+        setUser(parsed);
+        // Fire-and-forget: self-heals stale cached approvalStatus/
+        // kycStatus (e.g. approved server-side while the app was closed)
+        // on every cold start, instead of only while sitting on whatever
+        // onboarding screen happens to be polling. Doesn't block the
+        // loading screen — UI shows cached state immediately, then
+        // silently updates once this resolves.
+        refreshUser(parsed).catch(() => {});
       }
     } catch (e) {
       console.log(e);
