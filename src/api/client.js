@@ -45,6 +45,13 @@ export const authApi = {
   logout: () => api.post('/auth/logout'),
 };
 
+// Unified login — single phone-only flow, backend decides driver vs
+// owner vs brand-new. Replaces LoginScreen's old Driver/Owner tabs.
+export const unifiedAuthApi = {
+  sendOtp: (phone, name) => api.post('/auth/unified-send-otp', { phone, name }),
+  verifyOtp: (phone, otp, deviceId) => api.post('/auth/unified-verify-otp', { phone, otp, deviceId }),
+};
+
 export const attendanceApi = {
   clockIn: (data) => api.post('/attendance/clock-in', data),
   clockOut: () => api.post('/attendance/clock-out'),

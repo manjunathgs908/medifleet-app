@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 
 /**
@@ -8,15 +8,7 @@ import { useAuth } from '../../context/AuthContext';
  * live dashboard is a later phase; this is deliberately minimal.
  */
 export default function OwnerHomeScreen({ navigation }) {
-  const { user, logout } = useAuth();
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } catch (err) {
-      Alert.alert('Cannot Log Out', err?.response?.data?.message || 'Please try again.');
-    }
-  };
+  const { user } = useAuth();
 
   return (
     <View style={styles.container}>
@@ -25,9 +17,6 @@ export default function OwnerHomeScreen({ navigation }) {
           <Text style={styles.title}>MediFleet Owner</Text>
           <Text style={styles.subtitle}>{user?.name}</Text>
         </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
-          <Text style={styles.logoutTxt}>Logout</Text>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.body}>
@@ -86,6 +75,14 @@ export default function OwnerHomeScreen({ navigation }) {
             <Text style={styles.cardDesc}>Sign a driver out of a stuck device</Text>
           </View>
         </TouchableOpacity>
+
+        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('OwnerProfile')}>
+          <Text style={styles.cardIcon}>👤</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle}>Profile</Text>
+            <Text style={styles.cardDesc}>Your KYC status, documents, and logout</Text>
+          </View>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -100,8 +97,6 @@ const styles = StyleSheet.create({
   },
   title: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
   subtitle: { color: '#9ca3af', fontSize: 13, marginTop: 2 },
-  logoutBtn: { backgroundColor: '#ef4444', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8 },
-  logoutTxt: { color: '#fff', fontWeight: 'bold' },
 
   body: { padding: 16, gap: 12 },
   card: {

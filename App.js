@@ -17,6 +17,7 @@ import DriverProfileCheckScreen from './src/screens/DriverProfileCheckScreen';
 import DriverOnboardingScreen from './src/screens/DriverOnboardingScreen';
 import OwnerOnboardingScreen from './src/screens/OwnerOnboardingScreen';
 import DriverDashboard from './src/screens/driver/DriverDashboard';
+import DriverProfileScreen from './src/screens/driver/DriverProfileScreen';
 import BookingTripScreen from './src/screens/driver/BookingTripScreen';
 import TripAssignedScreen from './src/screens/driver/TripAssignedScreen';
 import AmbulancePickerScreen from './src/screens/driver/AmbulancePickerScreen';
@@ -30,6 +31,7 @@ import AddDriverScreen from './src/screens/owner/AddDriverScreen';
 import OwnerDashboardScreen from './src/screens/owner/OwnerDashboardScreen';
 import DriveAmbulanceScreen from './src/screens/owner/DriveAmbulanceScreen';
 import OwnerTripDetailScreen from './src/screens/owner/OwnerTripDetailScreen';
+import OwnerProfileScreen from './src/screens/owner/OwnerProfileScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -157,6 +159,7 @@ function AppNavigator() {
     return (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="DriverDashboard" component={DriverDashboard} />
+        <Stack.Screen name="DriverProfile" component={DriverProfileScreen} />
         <Stack.Screen name="BookingTrip" component={BookingTripScreen} />
         <Stack.Screen name="AmbulancePicker" component={AmbulancePickerScreen} />
         <Stack.Screen
@@ -199,6 +202,7 @@ function AppNavigator() {
         <Stack.Screen name="DriveAmbulance" component={DriveAmbulanceScreen} />
         <Stack.Screen name="OwnerTripDetail" component={OwnerTripDetailScreen} />
         <Stack.Screen name="UnbindDevice" component={UnbindDeviceScreen} />
+        <Stack.Screen name="OwnerProfile" component={OwnerProfileScreen} />
       </Stack.Navigator>
     );
   }

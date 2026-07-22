@@ -6,50 +6,64 @@ import {
 import { useAuth } from '../context/AuthContext';
 import PinInput from '../components/PinInput';
 import { getDeviceId } from '../utils/device';
-import { authApi, ownerAuthApi } from '../api/client';
+import { unifiedAuthApi } from '../api/client';
 
+/**
+ * Single phone-only login — no Driver/Owner tab choice. The backend
+ * (POST /auth/unified-send-otp, /unified-verify-otp) decides whether
+ * this phone is a driver, an existing owner, or brand-new; the app just
+ * routes on whatever `user.role` comes back (App.js's existing
+ * role-based branching is unaffected by how login happened).
+ */
 export default function LoginScreen() {
-  const { loginWithOtp, ownerLogin, deviceKicked, dismissDeviceKicked } = useAuth();
+  const { unifiedLogin, deviceKicked, dismissDeviceKicked } = useAuth();
 
-  // Two actor types share this screen: Driver (phone+OTP) and Owner
-  // (phone+OTP, separate Owner model/session — untouched by this pass).
-  const [mode, setMode] = useState('driver'); // 'driver' | 'owner'
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [testOtp, setTestOtp] = useState(null);
+
+  // Brand-new phone (no Owner, no active driver) registers as a new
+  // Owner — same "name required" flow ownerController.sendOtp already
+  // had, just reached without picking a tab first.
+  const [needsName, setNeedsName] = useState(false);
+  const [name, setName] = useState('');
+
   const [loading, setLoading] = useState(false);
 
-  // ── Driver: phone + OTP ────────────────────────────────────────
-  const [driverPhone, setDriverPhone] = useState('');
-  const [driverOtp, setDriverOtp] = useState('');
-  const [driverOtpSent, setDriverOtpSent] = useState(false);
-  const [pendingApproval, setPendingApproval] = useState(false);
-  // TEMPORARY — REMOVE AFTER DLT APPROVAL. testOtp only ever appears in
-  // the response for whitelisted numbers (see authController.sendOtp) —
-  // this just surfaces it on screen since a phone can't see server logs.
-  const [driverTestOtp, setDriverTestOtp] = useState(null);
-
-  const handleSendDriverOtp = async () => {
-    if (driverPhone.trim().length !== 10) {
+  const handleSendOtp = async () => {
+    if (phone.trim().length !== 10) {
       Alert.alert('Error', 'Please enter a valid 10-digit phone number.');
+      return;
+    }
+    if (needsName && !name.trim()) {
+      Alert.alert('Error', 'Please enter your name to register.');
       return;
     }
     setLoading(true);
     try {
-      const { data } = await authApi.sendOtp(driverPhone.trim());
-      setDriverOtpSent(true);
+      const { data } = await unifiedAuthApi.sendOtp(phone.trim(), needsName ? name.trim() : undefined);
+      setOtpSent(true);
       if (data?.testOtp) {
-        setDriverTestOtp(data.testOtp);
-        setDriverOtp(data.testOtp);
+        setTestOtp(data.testOtp);
+        setOtp(data.testOtp);
       } else {
-        setDriverTestOtp(null);
+        setTestOtp(null);
       }
     } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Could not send OTP. Please try again.');
+      const message = e.response?.data?.message || 'Could not send OTP. Please try again.';
+      if (!needsName && /name is required/i.test(message)) {
+        setNeedsName(true);
+      } else {
+        Alert.alert('Error', message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleVerifyDriverOtp = async () => {
-    if (driverOtp.length !== 4) {
+  const handleVerifyOtp = async () => {
+    if (otp.length !== 4) {
       Alert.alert('Error', 'Please enter the 4-digit OTP.');
       return;
     }
@@ -60,87 +74,23 @@ export default function LoginScreen() {
         Alert.alert('Error', 'Could not identify this device. Please try again.');
         return;
       }
-      await loginWithOtp(driverPhone.trim(), driverOtp.trim(), deviceId);
-      // App.js reacts to the updated user (Permissions/Dashboard) — no
-      // explicit navigation call needed here, same pattern the other
-      // login flows on this screen use.
-    } catch (e) {
-      const message = e.response?.data?.message;
-      if (message === 'Your account is pending approval.') {
-        setPendingApproval(true);
-      } else {
-        Alert.alert('Error', message || 'Invalid or expired OTP.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resetDriverNotice = () => {
-    setPendingApproval(false);
-    setDriverOtp('');
-    setDriverOtpSent(false);
-    setDriverTestOtp(null);
-  };
-
-  // ── Owner: phone + OTP (fleet-Owner model — untouched) ─────────
-  const [ownerPhone, setOwnerPhone] = useState('');
-  const [ownerOtp, setOwnerOtp] = useState('');
-  const [ownerOtpSent, setOwnerOtpSent] = useState(false);
-  // TEMPORARY — REMOVE AFTER DLT APPROVAL. See driverTestOtp above.
-  const [ownerTestOtp, setOwnerTestOtp] = useState(null);
-  // A brand-new phone gets a 400 from /owners/send-otp asking for a name
-  // (see ownerController.sendOtp) — reveal the name field and retry with
-  // it, rather than dead-ending on an alert.
-  const [ownerName, setOwnerName] = useState('');
-  const [ownerNeedsName, setOwnerNeedsName] = useState(false);
-
-  const handleSendOwnerOtp = async () => {
-    if (!ownerPhone) {
-      Alert.alert('Error', 'Please enter your phone number.');
-      return;
-    }
-    if (ownerNeedsName && !ownerName.trim()) {
-      Alert.alert('Error', 'Please enter your name to register.');
-      return;
-    }
-    setLoading(true);
-    try {
-      const { data } = await ownerAuthApi.sendOtp(ownerPhone.trim(), ownerNeedsName ? ownerName.trim() : undefined);
-      setOwnerOtpSent(true);
-      if (data?.testOtp) {
-        setOwnerTestOtp(data.testOtp);
-        setOwnerOtp(data.testOtp);
-      } else {
-        setOwnerTestOtp(null);
-      }
-    } catch (e) {
-      const message = e.response?.data?.message || 'Could not send OTP. Please try again.';
-      if (!ownerNeedsName && /name is required/i.test(message)) {
-        setOwnerNeedsName(true);
-      } else {
-        Alert.alert('Error', message);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOwnerOtp = async () => {
-    if (ownerOtp.length !== 4) {
-      Alert.alert('Error', 'Please enter the 4-digit OTP.');
-      return;
-    }
-    setLoading(true);
-    try {
-      await ownerLogin(ownerPhone.trim(), ownerOtp.trim());
-      // App.js reacts to the updated user (role:'owner') — no explicit
-      // navigation call needed here, same pattern the other tabs use.
+      await unifiedLogin(phone.trim(), otp.trim(), deviceId);
+      // App.js reacts to the updated user (role:'driver'|'owner') — no
+      // explicit navigation call needed here, same pattern the old
+      // per-tab handlers used.
     } catch (e) {
       Alert.alert('Error', e.response?.data?.message || 'Invalid or expired OTP.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleChangePhone = () => {
+    setOtpSent(false);
+    setOtp('');
+    setTestOtp(null);
+    setNeedsName(false);
+    setName('');
   };
 
   return (
@@ -161,130 +111,56 @@ export default function LoginScreen() {
           </View>
         )}
 
-        <View style={styles.tabRow}>
-          <TouchableOpacity
-            style={[styles.tabBtn, mode === 'driver' && styles.tabBtnActive]}
-            onPress={() => setMode('driver')}
-          >
-            <Text style={[styles.tabText, mode === 'driver' && styles.tabTextActive]}>Driver</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabBtn, mode === 'owner' && styles.tabBtnActive]}
-            onPress={() => setMode('owner')}
-          >
-            <Text style={[styles.tabText, mode === 'owner' && styles.tabTextActive]}>Owner</Text>
-          </TouchableOpacity>
-        </View>
+        <TextInput
+          style={styles.input}
+          placeholder="Phone Number"
+          placeholderTextColor="#888"
+          keyboardType="phone-pad"
+          maxLength={10}
+          editable={!otpSent}
+          value={phone}
+          onChangeText={(t) => { setPhone(t.replace(/[^0-9]/g, '')); setNeedsName(false); setName(''); }}
+        />
 
-        {mode === 'driver' ? (
+        {needsName && !otpSent && (
           <>
-            {pendingApproval && (
-              <View style={styles.noticeBox}>
-                <Text style={styles.noticeTitle}>⏳ Pending Approval</Text>
-                <Text style={styles.noticeText}>
-                  Your account is waiting for your Owner/Admin to approve it. Please check back later.
-                </Text>
-                <TouchableOpacity onPress={resetDriverNotice} style={{ marginTop: 10 }}>
-                  <Text style={styles.label}>Try Again</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {!pendingApproval && (
-              <>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Phone Number"
-                  placeholderTextColor="#888"
-                  keyboardType="phone-pad"
-                  maxLength={10}
-                  editable={!driverOtpSent}
-                  value={driverPhone}
-                  onChangeText={(t) => setDriverPhone(t.replace(/[^0-9]/g, ''))}
-                />
-
-                {driverOtpSent && (
-                  <>
-                    <Text style={styles.label}>4-Digit OTP</Text>
-                    {driverTestOtp && (
-                      <Text style={styles.testOtpBanner}>🧪 Test mode — OTP auto-filled: {driverTestOtp}</Text>
-                    )}
-                    <PinInput length={4} value={driverOtp} onChange={setDriverOtp} autoFocus />
-                  </>
-                )}
-
-                <TouchableOpacity
-                  style={[styles.button, { marginTop: driverOtpSent ? 20 : 8 }, loading && { opacity: 0.6 }]}
-                  onPress={driverOtpSent ? handleVerifyDriverOtp : handleSendDriverOtp}
-                  disabled={loading}
-                >
-                  {loading
-                    ? <ActivityIndicator color="#fff" />
-                    : <Text style={styles.buttonText}>{driverOtpSent ? 'Verify OTP →' : 'Send OTP'}</Text>
-                  }
-                </TouchableOpacity>
-
-                {driverOtpSent && (
-                  <TouchableOpacity onPress={resetDriverNotice} style={{ marginTop: 12 }}>
-                    <Text style={styles.label}>Change phone number</Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            )}
-          </>
-        ) : (
-          <>
+            <Text style={styles.label}>New here — what's your name?</Text>
             <TextInput
               style={styles.input}
-              placeholder="Phone Number"
+              placeholder="Your Name"
               placeholderTextColor="#888"
-              keyboardType="phone-pad"
-              editable={!ownerOtpSent}
-              value={ownerPhone}
-              onChangeText={(t) => { setOwnerPhone(t); setOwnerNeedsName(false); setOwnerName(''); }}
+              value={name}
+              onChangeText={setName}
+              autoFocus
             />
-
-            {ownerNeedsName && !ownerOtpSent && (
-              <>
-                <Text style={styles.label}>New here — what's your name?</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Your Name"
-                  placeholderTextColor="#888"
-                  value={ownerName}
-                  onChangeText={setOwnerName}
-                  autoFocus
-                />
-              </>
-            )}
-
-            {ownerOtpSent && (
-              <>
-                <Text style={styles.label}>4-Digit OTP</Text>
-                {ownerTestOtp && (
-                  <Text style={styles.testOtpBanner}>🧪 Test mode — OTP auto-filled: {ownerTestOtp}</Text>
-                )}
-                <PinInput length={4} value={ownerOtp} onChange={setOwnerOtp} />
-              </>
-            )}
-
-            <TouchableOpacity
-              style={[styles.button, { marginTop: ownerOtpSent ? 20 : 8 }, loading && { opacity: 0.6 }]}
-              onPress={ownerOtpSent ? handleVerifyOwnerOtp : handleSendOwnerOtp}
-              disabled={loading}
-            >
-              {loading
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.buttonText}>{ownerOtpSent ? 'Verify OTP →' : 'Send OTP'}</Text>
-              }
-            </TouchableOpacity>
-
-            {ownerOtpSent && (
-              <TouchableOpacity onPress={() => { setOwnerOtpSent(false); setOwnerOtp(''); setOwnerTestOtp(null); setOwnerNeedsName(false); setOwnerName(''); }} style={{ marginTop: 12 }}>
-                <Text style={styles.label}>Change phone number</Text>
-              </TouchableOpacity>
-            )}
           </>
+        )}
+
+        {otpSent && (
+          <>
+            <Text style={styles.label}>4-Digit OTP</Text>
+            {testOtp && (
+              <Text style={styles.testOtpBanner}>🧪 Test mode — OTP auto-filled: {testOtp}</Text>
+            )}
+            <PinInput length={4} value={otp} onChange={setOtp} autoFocus />
+          </>
+        )}
+
+        <TouchableOpacity
+          style={[styles.button, { marginTop: otpSent ? 20 : 8 }, loading && { opacity: 0.6 }]}
+          onPress={otpSent ? handleVerifyOtp : handleSendOtp}
+          disabled={loading}
+        >
+          {loading
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={styles.buttonText}>{otpSent ? 'Verify OTP →' : 'Send OTP'}</Text>
+          }
+        </TouchableOpacity>
+
+        {otpSent && (
+          <TouchableOpacity onPress={handleChangePhone} style={{ marginTop: 12 }}>
+            <Text style={styles.label}>Change phone number</Text>
+          </TouchableOpacity>
         )}
       </View>
     </View>
@@ -318,31 +194,6 @@ const styles = StyleSheet.create({
     color: '#888',
     textAlign: 'center',
     marginBottom: 24,
-  },
-  tabRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 22,
-    backgroundColor: '#1f2937',
-    borderRadius: 10,
-    padding: 4,
-  },
-  tabBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  tabBtnActive: {
-    backgroundColor: '#10b981',
-  },
-  tabText: {
-    color: '#9ca3af',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  tabTextActive: {
-    color: '#fff',
   },
   label: {
     color: '#9ca3af',
@@ -393,7 +244,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
-  // TEMPORARY — REMOVE AFTER DLT APPROVAL.
   testOtpBanner: {
     backgroundColor: 'rgba(16,185,129,0.12)',
     borderWidth: 1,

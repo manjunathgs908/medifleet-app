@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authApi, ownerAuthApi, assignmentsApi, setSessionKickedHandler } from '../api/client';
+import { authApi, ownerAuthApi, unifiedAuthApi, assignmentsApi, setSessionKickedHandler } from '../api/client';
 
 const OWNER_BACKUP_KEY = 'ownerBackupSession'; // holds the owner's own tokens while acting as driver
 
@@ -90,28 +90,21 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  // Driver login — phone + OTP (replaces the removed Employee ID + PIN
-  // flow). Same token-storage pattern as the other login functions.
-  const loginWithOtp = async (phone, otp, deviceId) => {
-    const { data } = await authApi.verifyOtp(phone, otp, deviceId);
+  // Unified login — single phone-only flow (LoginScreen no longer asks
+  // Driver or Owner first). The backend decides which collection the
+  // phone belongs to and returns either `user` (driver) or `owner`
+  // (fleet-Owner) — whichever key is present is the session to store.
+  // Same AsyncStorage/setUser pattern the old per-role login functions
+  // used (loginWithOtp/ownerLogin, removed — LoginScreen was their only
+  // caller).
+  const unifiedLogin = async (phone, otp, deviceId) => {
+    const { data } = await unifiedAuthApi.verifyOtp(phone, otp, deviceId);
+    const profile = data.user || data.owner;
     await AsyncStorage.setItem('accessToken', data.accessToken);
     await AsyncStorage.setItem('refreshToken', data.refreshToken);
-    await AsyncStorage.setItem('user', JSON.stringify(data.user));
-    setUser(data.user);
-    return data.user;
-  };
-
-  // Owner OTP login (fleet-Owner model, Phase 1) — additive, same
-  // token-storage pattern as loginWithOtp above. Note: this is a
-  // completely separate session/collection from the User-model owner
-  // login() above, even though both end up with user.role === 'owner'.
-  const ownerLogin = async (phone, otp) => {
-    const { data } = await ownerAuthApi.verifyOtp(phone, otp);
-    await AsyncStorage.setItem('accessToken', data.accessToken);
-    await AsyncStorage.setItem('refreshToken', data.refreshToken);
-    await AsyncStorage.setItem('user', JSON.stringify(data.owner));
-    setUser(data.owner);
-    return data.owner;
+    await AsyncStorage.setItem('user', JSON.stringify(profile));
+    setUser(profile);
+    return profile;
   };
 
   // Owner-as-driver — a small operator drives their own fleet. Deliberately
@@ -175,7 +168,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, loginWithOtp, ownerLogin, deviceKicked, dismissDeviceKicked, refreshUser, startDutyAsOwner, restoreOwnerSession }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, unifiedLogin, deviceKicked, dismissDeviceKicked, refreshUser, startDutyAsOwner, restoreOwnerSession }}>
       {children}
     </AuthContext.Provider>
   );
