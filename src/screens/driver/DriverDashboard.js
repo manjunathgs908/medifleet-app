@@ -17,7 +17,6 @@ const DUTY_CHECK_LABELS = {
   backgroundLocation: 'Background location granted',
   batteryOk: 'Battery optimization disabled',
   approved: 'Driver approved',
-  documentsValid: 'Documents uploaded',
   appUpdated: 'App up to date',
 };
 
@@ -125,12 +124,13 @@ export default function DriverDashboard({ navigation, route }) {
       internet,
       backgroundLocation: !!backgroundPerm?.granted,
       batteryOk: Platform.OS === 'android' ? !batteryEnabled : true,
+      // approvalStatus is the one gate for duty — an owner approving a
+      // driver is the actual decision point (documents inform it, same as
+      // the server enforces at start-duty); re-checking driverDocuments
+      // here too was redundant and wrongly blocked already-approved
+      // drivers whose documents field is empty (e.g. DRV-001, created
+      // before this onboarding flow existed).
       approved: freshUser?.approvalStatus === 'approved',
-      documentsValid: !!(
-        freshUser?.driverDocuments?.dl?.url &&
-        freshUser?.driverDocuments?.aadhaar?.url &&
-        freshUser?.driverDocuments?.photo?.url
-      ),
       appUpdated: !updateResult?.isAvailable,
     };
     setChecks(next);
