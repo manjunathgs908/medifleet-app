@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView, TextInput, Switch, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView, TextInput, Switch, Platform, Modal } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as Updates from 'expo-updates';
@@ -7,6 +8,11 @@ import { BatteryOptEnabled } from 'react-native-battery-optimization-check';
 import { useAuth } from '../../context/AuthContext';
 import { driverAuthApi, tripsApi, assignmentsApi, authApi } from '../../api/client';
 import { getDeviceId, checkInternet } from '../../utils/device';
+
+// Must match AuthContext.js's own OWNER_BACKUP_KEY — that's where
+// startDutyAsOwner backs up the owner's tokens while this driver session
+// is active, and where they stay until end-duty restores them.
+const OWNER_BACKUP_KEY = 'ownerBackupSession';
 
 // Every check the driver must pass before the ON DUTY toggle is enabled.
 // Keys match the `checks` state object below 1:1 so failing ones can be
@@ -85,6 +91,12 @@ export default function DriverDashboard({ navigation, route }) {
   const [dutyLoading, setDutyLoading] = useState(false);
   const [checks, setChecks] = useState({});
   const [checksLoading, setChecksLoading] = useState(true);
+
+  // ── "My Fleet" quick-check (owner-driving-self only) ──
+  const [fleetModalOpen, setFleetModalOpen] = useState(false);
+  const [fleetLoading, setFleetLoading] = useState(false);
+  const [fleetData, setFleetData] = useState(null);
+  const [fleetError, setFleetError] = useState(null);
 
   // Re-fetches the real driver profile (approvalStatus/assignedAmbulanceId/
   // driverDocuments — not necessarily fresh in AuthContext if the session
@@ -434,6 +446,26 @@ export default function DriverDashboard({ navigation, route }) {
     );
   };
 
+  // Reads GET /assignments/fleet-status with the owner's own (backed-up)
+  // token — a one-off direct read, not a session swap, so the active
+  // driving session/duty/trip is completely undisturbed.
+  const openFleetModal = async () => {
+    setFleetModalOpen(true);
+    setFleetLoading(true);
+    setFleetError(null);
+    try {
+      const backupRaw = await AsyncStorage.getItem(OWNER_BACKUP_KEY);
+      if (!backupRaw) throw new Error('No owner session found.');
+      const backup = JSON.parse(backupRaw);
+      const { data } = await assignmentsApi.getFleetStatusAsOwner(backup.accessToken);
+      setFleetData(data.fleet || []);
+    } catch (err) {
+      setFleetError(err?.response?.data?.message || err.message || 'Could not load fleet status.');
+    } finally {
+      setFleetLoading(false);
+    }
+  };
+
   const recenter = () => {
     if (driverLoc && mapRef.current) {
       mapRef.current.animateToRegion(
@@ -474,6 +506,11 @@ export default function DriverDashboard({ navigation, route }) {
             <Text style={styles.welcome}>Hello, {user?.name}!</Text>
             <Text style={styles.role}>Driver</Text>
           </View>
+          {user?.isOwnerSelf && (
+            <TouchableOpacity style={styles.myFleetBtn} onPress={openFleetModal}>
+              <Text style={styles.myFleetBtnTxt}>🚑 My Fleet</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.dutyCard}>
@@ -635,6 +672,61 @@ export default function DriverDashboard({ navigation, route }) {
           <Text style={styles.navLabel}>Profile</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={fleetModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFleetModalOpen(false)}
+      >
+        <View style={styles.fleetModalOverlay}>
+          <View style={styles.fleetModalCard}>
+            <View style={styles.fleetModalHeader}>
+              <Text style={styles.fleetModalTitle}>🚑 My Fleet</Text>
+              <TouchableOpacity onPress={() => setFleetModalOpen(false)}>
+                <Text style={styles.fleetModalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {fleetLoading && (
+              <ActivityIndicator color="#3b82f6" style={{ marginVertical: 20 }} />
+            )}
+
+            {!fleetLoading && fleetError && (
+              <Text style={styles.fleetErrorTxt}>{fleetError}</Text>
+            )}
+
+            {!fleetLoading && !fleetError && (
+              <ScrollView style={{ maxHeight: 360 }}>
+                {(fleetData || []).length === 0 && (
+                  <Text style={styles.fleetEmptyTxt}>No ambulances yet.</Text>
+                )}
+                {(fleetData || []).map((entry) => (
+                  <View key={entry.ambulance.id} style={styles.fleetRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fleetReg}>{entry.ambulance.registrationNumber}</Text>
+                      <Text style={styles.fleetDriver} numberOfLines={1}>
+                        {entry.ambulance.assignedDriver?.name || 'Unassigned'}
+                      </Text>
+                      {entry.activeTrip && (
+                        <Text style={styles.fleetTrip} numberOfLines={1}>
+                          🚨 {entry.activeTrip.patientName} · {entry.activeTrip.status}
+                        </Text>
+                      )}
+                    </View>
+                    <Text style={styles.fleetStatusTxt}>
+                      {entry.ambulance.displayStatus === 'available' ? '🟢 Available'
+                        : entry.ambulance.displayStatus === 'on_trip' ? '🟡 On Trip'
+                        : entry.ambulance.displayStatus === 'maintenance' ? '🔧 Maintenance'
+                        : '⚪ Off'}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -672,6 +764,16 @@ const styles = StyleSheet.create({
   },
   welcome: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
   role: { color: '#10b981', fontSize: 13, marginTop: 2 },
+
+  myFleetBtn: {
+    backgroundColor: 'rgba(59,130,246,0.15)',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.35)',
+  },
+  myFleetBtnTxt: { color: '#3b82f6', fontSize: 12, fontWeight: '700' },
 
   dutyCard: {
     flexDirection: 'row',
@@ -807,4 +909,40 @@ const styles = StyleSheet.create({
   navIconActive: { fontSize: 20 },
   navLabel: { color: '#6b7280', fontSize: 10, fontWeight: '600' },
   navLabelActive: { color: '#10b981', fontSize: 10, fontWeight: '700' },
+
+  fleetModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  fleetModalCard: {
+    backgroundColor: '#111827',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  fleetModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  fleetModalTitle: { color: '#fff', fontSize: 17, fontWeight: 'bold' },
+  fleetModalClose: { color: '#9ca3af', fontSize: 18, padding: 4 },
+  fleetErrorTxt: { color: '#ef4444', fontSize: 13, textAlign: 'center', paddingVertical: 20 },
+  fleetEmptyTxt: { color: '#6b7280', fontSize: 13, textAlign: 'center', paddingVertical: 20 },
+  fleetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  fleetReg: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  fleetDriver: { color: '#9ca3af', fontSize: 12, marginTop: 2 },
+  fleetTrip: { color: '#f59e0b', fontSize: 11, marginTop: 3 },
+  fleetStatusTxt: { color: '#e5e7eb', fontSize: 12, fontWeight: '600', marginLeft: 10 },
 });

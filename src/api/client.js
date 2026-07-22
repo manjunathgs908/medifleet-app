@@ -92,6 +92,15 @@ export const assignmentsApi = {
   getAvailableAmbulances: () => api.get('/assignments/available-ambulances'),
   // Phase 6 — owner-facing live fleet overview (protectOwner-gated).
   getFleetStatus: () => api.get('/assignments/fleet-status'),
+  // Phase 6C — an owner driving their own ambulance is mid-session as the
+  // shadow driver, so the shared `api` instance's interceptor would attach
+  // the driver's accessToken, not the owner's. Uses the owner token backed
+  // up in AsyncStorage[OWNER_BACKUP_KEY] (see AuthContext.startDutyAsOwner)
+  // directly, bypassing that interceptor, so the driving session is never
+  // touched.
+  getFleetStatusAsOwner: (ownerAccessToken) => axios.get(`${API_URL}/assignments/fleet-status`, {
+    headers: { Authorization: `Bearer ${ownerAccessToken}` },
+  }),
 };
 
 // Owner OTP login (Phase 1 fleet-Owner model, separate from the User-model
