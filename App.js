@@ -15,6 +15,7 @@ import BatteryOptimizationScreen from './src/screens/BatteryOptimizationScreen';
 import TermsScreen from './src/screens/TermsScreen';
 import DriverProfileCheckScreen from './src/screens/DriverProfileCheckScreen';
 import DriverOnboardingScreen from './src/screens/DriverOnboardingScreen';
+import OwnerOnboardingScreen from './src/screens/OwnerOnboardingScreen';
 import DriverDashboard from './src/screens/driver/DriverDashboard';
 import BookingTripScreen from './src/screens/driver/BookingTripScreen';
 import TripAssignedScreen from './src/screens/driver/TripAssignedScreen';
@@ -168,13 +169,24 @@ function AppNavigator() {
   }
 
   // Owner OTP login (fleet-Owner model) — a small multi-screen section now
-  // (Phase 2: Add Ambulance), no onboarding gate needed like the driver
-  // side. LoginScreen's Password tab was dropped when driver login moved
-  // to phone+OTP; the phone+password flow (authApi.login, role:'owner'/
-  // 'telecaller' User-model staff) is still reachable via AuthContext.login()
-  // if something calls it directly, but nothing on this screen does anymore
-  // — only the dedicated Owner (OTP) tab reaches here.
+  // (Phase 2: Add Ambulance). LoginScreen's Password tab was dropped when
+  // driver login moved to phone+OTP; the phone+password flow (authApi.login,
+  // role:'owner'/'telecaller' User-model staff) is still reachable via
+  // AuthContext.login() if something calls it directly, but nothing on
+  // this screen does anymore — only the dedicated Owner (OTP) tab reaches
+  // here.
   if (user.role === 'owner') {
+    // Owner Approval (KYC) gate — same role App.js's driver branch plays
+    // for approvalStatus: an owner with kycStatus !== 'approved' is stuck
+    // on OwnerOnboardingScreen (no escape hatch but Logout) until the CRM
+    // admin approves them via the new /api/owners/:id/approve endpoint.
+    if (user.kycStatus !== 'approved') {
+      return (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="OwnerOnboarding" component={OwnerOnboardingScreen} />
+        </Stack.Navigator>
+      );
+    }
     return (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="OwnerHome" component={OwnerHomeScreen} />

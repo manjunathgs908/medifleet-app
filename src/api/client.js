@@ -96,6 +96,12 @@ export const ownerAuthApi = {
   // lets a small operator drive their own fleet through the normal
   // driver flow.
   actAsDriver: (deviceId) => api.post('/owners/act-as-driver', { deviceId }),
+  // Owner Approval (KYC) — self-service, mirrors driverAuthApi's own
+  // getMe/uploadDocument shape. Never gated: an owner must always be
+  // able to check their own kycStatus/kycRejectionReason and upload/
+  // re-upload documents regardless of approval state.
+  getMe: () => api.get('/owners/me'),
+  uploadKycDocument: (docType, base64) => api.post('/owners/kyc/upload', { docType, base64 }),
 };
 
 // Owner-facing driver device management + approval (Unbind Device tool,

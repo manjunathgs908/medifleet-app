@@ -27,16 +27,19 @@ export const AuthProvider = ({ children }) => {
 
   const dismissDeviceKicked = () => setDeviceKicked(false);
 
-  // Re-fetches the driver's own profile and merges it into the cached
-  // user — needed because approvalStatus can change server-side (owner
-  // approves/rejects) with no push mechanism; DriverOnboardingScreen
-  // polls this so the app notices and moves on once approved, without
-  // requiring a fresh login.
+  // Re-fetches the driver's (or owner's) own profile and merges it into
+  // the cached user — needed because approvalStatus/kycStatus can change
+  // server-side (owner/admin approves or rejects) with no push
+  // mechanism; DriverOnboardingScreen/OwnerOnboardingScreen poll this so
+  // the app notices and moves on once approved, without requiring a
+  // fresh login. Branches on role since the two onboarding flows are
+  // backed by entirely separate collections/endpoints (User vs Owner).
   const refreshUser = async () => {
     try {
-      const { data } = await authApi.me();
-      if (data?.user) {
-        const merged = { ...user, ...data.user };
+      const { data } = user?.role === 'owner' ? await ownerAuthApi.getMe() : await authApi.me();
+      const fresh = data?.owner || data?.user;
+      if (fresh) {
+        const merged = { ...user, ...fresh };
         await AsyncStorage.setItem('user', JSON.stringify(merged));
         setUser(merged);
         return merged;
