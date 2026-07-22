@@ -49,8 +49,8 @@ export default function LoginScreen() {
   };
 
   const handleVerifyDriverOtp = async () => {
-    if (driverOtp.length !== 6) {
-      Alert.alert('Error', 'Please enter the 6-digit OTP.');
+    if (driverOtp.length !== 4) {
+      Alert.alert('Error', 'Please enter the 4-digit OTP.');
       return;
     }
     setLoading(true);
@@ -127,8 +127,8 @@ export default function LoginScreen() {
   };
 
   const handleVerifyOwnerOtp = async () => {
-    if (ownerOtp.length !== 6) {
-      Alert.alert('Error', 'Please enter the 6-digit OTP.');
+    if (ownerOtp.length !== 4) {
+      Alert.alert('Error', 'Please enter the 4-digit OTP.');
       return;
     }
     setLoading(true);
@@ -205,11 +205,11 @@ export default function LoginScreen() {
 
                 {driverOtpSent && (
                   <>
-                    <Text style={styles.label}>6-Digit OTP</Text>
+                    <Text style={styles.label}>4-Digit OTP</Text>
                     {driverTestOtp && (
                       <Text style={styles.testOtpBanner}>🧪 Test mode — OTP auto-filled: {driverTestOtp}</Text>
                     )}
-                    <PinInput length={6} value={driverOtp} onChange={setDriverOtp} autoFocus />
+                    <PinInput length={4} value={driverOtp} onChange={setDriverOtp} autoFocus />
                   </>
                 )}
 
@@ -260,11 +260,11 @@ export default function LoginScreen() {
 
             {ownerOtpSent && (
               <>
-                <Text style={styles.label}>6-Digit OTP</Text>
+                <Text style={styles.label}>4-Digit OTP</Text>
                 {ownerTestOtp && (
                   <Text style={styles.testOtpBanner}>🧪 Test mode — OTP auto-filled: {ownerTestOtp}</Text>
                 )}
-                <PinInput length={6} value={ownerOtp} onChange={setOwnerOtp} />
+                <PinInput length={4} value={ownerOtp} onChange={setOwnerOtp} />
               </>
             )}
 
