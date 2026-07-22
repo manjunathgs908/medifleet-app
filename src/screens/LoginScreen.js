@@ -89,15 +89,24 @@ export default function LoginScreen() {
   const [ownerOtpSent, setOwnerOtpSent] = useState(false);
   // TEMPORARY — REMOVE AFTER DLT APPROVAL. See driverTestOtp above.
   const [ownerTestOtp, setOwnerTestOtp] = useState(null);
+  // A brand-new phone gets a 400 from /owners/send-otp asking for a name
+  // (see ownerController.sendOtp) — reveal the name field and retry with
+  // it, rather than dead-ending on an alert.
+  const [ownerName, setOwnerName] = useState('');
+  const [ownerNeedsName, setOwnerNeedsName] = useState(false);
 
   const handleSendOwnerOtp = async () => {
     if (!ownerPhone) {
       Alert.alert('Error', 'Please enter your phone number.');
       return;
     }
+    if (ownerNeedsName && !ownerName.trim()) {
+      Alert.alert('Error', 'Please enter your name to register.');
+      return;
+    }
     setLoading(true);
     try {
-      const { data } = await ownerAuthApi.sendOtp(ownerPhone.trim());
+      const { data } = await ownerAuthApi.sendOtp(ownerPhone.trim(), ownerNeedsName ? ownerName.trim() : undefined);
       setOwnerOtpSent(true);
       if (data?.testOtp) {
         setOwnerTestOtp(data.testOtp);
@@ -106,7 +115,12 @@ export default function LoginScreen() {
         setOwnerTestOtp(null);
       }
     } catch (e) {
-      Alert.alert('Error', e.response?.data?.message || 'Could not send OTP. Please try again.');
+      const message = e.response?.data?.message || 'Could not send OTP. Please try again.';
+      if (!ownerNeedsName && /name is required/i.test(message)) {
+        setOwnerNeedsName(true);
+      } else {
+        Alert.alert('Error', message);
+      }
     } finally {
       setLoading(false);
     }
@@ -227,8 +241,22 @@ export default function LoginScreen() {
               keyboardType="phone-pad"
               editable={!ownerOtpSent}
               value={ownerPhone}
-              onChangeText={setOwnerPhone}
+              onChangeText={(t) => { setOwnerPhone(t); setOwnerNeedsName(false); setOwnerName(''); }}
             />
+
+            {ownerNeedsName && !ownerOtpSent && (
+              <>
+                <Text style={styles.label}>New here — what's your name?</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Your Name"
+                  placeholderTextColor="#888"
+                  value={ownerName}
+                  onChangeText={setOwnerName}
+                  autoFocus
+                />
+              </>
+            )}
 
             {ownerOtpSent && (
               <>
@@ -252,7 +280,7 @@ export default function LoginScreen() {
             </TouchableOpacity>
 
             {ownerOtpSent && (
-              <TouchableOpacity onPress={() => { setOwnerOtpSent(false); setOwnerOtp(''); setOwnerTestOtp(null); }} style={{ marginTop: 12 }}>
+              <TouchableOpacity onPress={() => { setOwnerOtpSent(false); setOwnerOtp(''); setOwnerTestOtp(null); setOwnerNeedsName(false); setOwnerName(''); }} style={{ marginTop: 12 }}>
                 <Text style={styles.label}>Change phone number</Text>
               </TouchableOpacity>
             )}
