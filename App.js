@@ -24,7 +24,8 @@ import OwnerHomeScreen from './src/screens/owner/OwnerHomeScreen';
 import AddAmbulanceScreen from './src/screens/owner/AddAmbulanceScreen';
 import MyAmbulancesScreen from './src/screens/owner/MyAmbulancesScreen';
 import AmbulanceDetailScreen from './src/screens/owner/AmbulanceDetailScreen';
-import PendingDriversScreen from './src/screens/owner/PendingDriversScreen';
+import MyDriversScreen from './src/screens/owner/MyDriversScreen';
+import AddDriverScreen from './src/screens/owner/AddDriverScreen';
 import OwnerDashboardScreen from './src/screens/owner/OwnerDashboardScreen';
 import DriveAmbulanceScreen from './src/screens/owner/DriveAmbulanceScreen';
 import OwnerTripDetailScreen from './src/screens/owner/OwnerTripDetailScreen';
@@ -180,7 +181,8 @@ function AppNavigator() {
         <Stack.Screen name="AddAmbulance" component={AddAmbulanceScreen} />
         <Stack.Screen name="MyAmbulances" component={MyAmbulancesScreen} />
         <Stack.Screen name="AmbulanceDetail" component={AmbulanceDetailScreen} />
-        <Stack.Screen name="PendingDrivers" component={PendingDriversScreen} />
+        <Stack.Screen name="MyDrivers" component={MyDriversScreen} />
+        <Stack.Screen name="AddDriver" component={AddDriverScreen} />
         <Stack.Screen name="OwnerDashboard" component={OwnerDashboardScreen} />
         <Stack.Screen name="DriveAmbulance" component={DriveAmbulanceScreen} />
         <Stack.Screen name="OwnerTripDetail" component={OwnerTripDetailScreen} />

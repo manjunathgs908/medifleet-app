@@ -7,7 +7,17 @@ import { ownerDriverApi } from '../../api/client';
 
 const DOC_LABELS = { dl: 'DL', aadhaar: 'Aadhaar', photo: 'Photo' };
 
-export default function PendingDriversScreen({ navigation }) {
+const STATUS_STYLES = {
+  pending : { bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.4)', text: '#f59e0b', label: 'Pending' },
+  approved: { bg: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.4)', text: '#10b981', label: 'Approved' },
+  rejected: { bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.4)',  text: '#ef4444', label: 'Rejected' },
+};
+
+// Every driver linked to this owner (see authController.listDrivers'
+// owner: req.user._id scoping) — was "Pending Drivers" (approvalStatus=
+// 'pending' only); now shows all of them with a status badge, and
+// approve/reject stay available only on the pending ones.
+export default function MyDriversScreen({ navigation }) {
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -17,7 +27,7 @@ export default function PendingDriversScreen({ navigation }) {
 
   const load = useCallback(async () => {
     try {
-      const { data } = await ownerDriverApi.list({ approvalStatus: 'pending' });
+      const { data } = await ownerDriverApi.list();
       setDrivers(data?.drivers || []);
     } catch (err) {
       Alert.alert('Error', err.response?.data?.message || 'Could not load drivers.');
@@ -68,11 +78,20 @@ export default function PendingDriversScreen({ navigation }) {
     const docs = item.driverDocuments || {};
     const isRejecting = rejectingId === item._id;
     const isBusy = busyId === item._id;
+    const isPending = item.approvalStatus === 'pending';
+    const status = STATUS_STYLES[item.approvalStatus] || STATUS_STYLES.pending;
 
     return (
       <View style={styles.card}>
-        <Text style={styles.name}>{item.name}</Text>
-        <Text style={styles.meta}>{item.phone}</Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.name}>{item.name}</Text>
+            <Text style={styles.meta}>{item.phone} · {item.employeeId}</Text>
+          </View>
+          <View style={[styles.badge, { backgroundColor: status.bg, borderColor: status.border }]}>
+            <Text style={[styles.badgeTxt, { color: status.text }]}>{status.label}</Text>
+          </View>
+        </View>
 
         <View style={styles.docRow}>
           {Object.keys(DOC_LABELS).map((docType) => (
@@ -87,7 +106,7 @@ export default function PendingDriversScreen({ navigation }) {
           ))}
         </View>
 
-        {isRejecting ? (
+        {isPending && (isRejecting ? (
           <View style={{ marginTop: 10 }}>
             <TextInput
               style={styles.reasonInput}
@@ -115,7 +134,7 @@ export default function PendingDriversScreen({ navigation }) {
               <Text style={styles.rejectOutlineBtnTxt}>✕ Reject</Text>
             </TouchableOpacity>
           </View>
-        )}
+        ))}
       </View>
     );
   }
@@ -126,7 +145,7 @@ export default function PendingDriversScreen({ navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backTxt}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Pending Drivers</Text>
+        <Text style={styles.title}>My Drivers</Text>
         <View style={{ width: 50 }} />
       </View>
 
@@ -139,7 +158,7 @@ export default function PendingDriversScreen({ navigation }) {
           renderItem={renderItem}
           contentContainerStyle={{ padding: 16 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#10b981" />}
-          ListEmptyComponent={<Text style={styles.emptyTxt}>No drivers waiting for approval.</Text>}
+          ListEmptyComponent={<Text style={styles.emptyTxt}>No drivers yet. Add one from Owner Home.</Text>}
         />
       )}
     </View>
@@ -160,8 +179,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#111827', borderRadius: 14, padding: 14, marginBottom: 12,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
   },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
   name: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
-  meta: { color: '#9ca3af', fontSize: 12.5, marginTop: 2, marginBottom: 12 },
+  meta: { color: '#9ca3af', fontSize: 12.5, marginTop: 2 },
+  badge: { borderRadius: 6, paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1 },
+  badgeTxt: { fontSize: 11, fontWeight: 'bold' },
 
   docRow: { flexDirection: 'row', gap: 10 },
   docSlot: { flex: 1, alignItems: 'center' },

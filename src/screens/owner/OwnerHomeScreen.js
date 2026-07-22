@@ -63,11 +63,19 @@ export default function OwnerHomeScreen({ navigation }) {
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('PendingDrivers')}>
+        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('AddDriver')}>
+          <Text style={styles.cardIcon}>➕</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle}>Add Driver</Text>
+            <Text style={styles.cardDesc}>Link a new driver to your fleet by phone number</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('MyDrivers')}>
           <Text style={styles.cardIcon}>🧑‍✈️</Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>Pending Drivers</Text>
-            <Text style={styles.cardDesc}>Review documents, approve or reject</Text>
+            <Text style={styles.cardTitle}>My Drivers</Text>
+            <Text style={styles.cardDesc}>All your drivers — review documents, approve or reject</Text>
           </View>
         </TouchableOpacity>
 

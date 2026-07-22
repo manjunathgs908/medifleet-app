@@ -103,6 +103,7 @@ export const ownerAuthApi = {
 // filtered by ?approvalStatus= for the Pending Drivers view.
 export const ownerDriverApi = {
   list       : (params) => api.get('/driver-auth', { params }),
+  register   : (name, phone) => api.post('/driver-auth/register', { name, phone }),
   unbindDevice: (id) => api.put(`/driver-auth/${id}/unbind-device`),
   approve    : (id) => api.put(`/driver-auth/${id}/approve`),
   reject     : (id, reason) => api.put(`/driver-auth/${id}/reject`, { reason }),
