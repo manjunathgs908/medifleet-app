@@ -1,7 +1,14 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Alert } from 'react-native';
 
-const PICK_OPTIONS = { mediaTypes: 'images', base64: true, quality: 0.6 };
+// No resolution cap here — expo-image-picker can't resize on its own
+// (that needs expo-image-manipulator, a native module not yet in this
+// app; adding it requires a full EAS Build, not just an OTA update, so
+// it's deliberately left out of this pass). `quality` is JPEG
+// compression only, so a very high-megapixel photo can still produce a
+// multi-MB base64 string — the backend's upload limit is sized to allow
+// for that headroom.
+const PICK_OPTIONS = { mediaTypes: 'images', base64: true, quality: 0.5 };
 
 function extractBase64(result) {
   if (result.canceled) return null;
