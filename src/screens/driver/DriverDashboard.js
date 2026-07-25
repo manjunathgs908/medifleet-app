@@ -77,6 +77,9 @@ export default function DriverDashboard({ navigation, route }) {
   const [otpInput, setOtpInput] = useState('');
   const [verifyingOtp, setVerifyingOtp] = useState(false);
 
+  const [markingReachedHospital, setMarkingReachedHospital] = useState(false);
+  const [startingReturn, setStartingReturn] = useState(false);
+
   const [completingTrip, setCompletingTrip] = useState(false);
 
   // ── Actual-distance accumulation while en_route (Step C) ──
@@ -415,6 +418,34 @@ export default function DriverDashboard({ navigation, route }) {
     }
   };
 
+  const reachedHospital = async () => {
+    if (!activeTrip) return;
+    setMarkingReachedHospital(true);
+    try {
+      await tripsApi.reachedHospital(activeTrip._id, driverLoc?.latitude, driverLoc?.longitude);
+      setActiveTrip({ ...activeTrip, reachedHospitalAt: new Date().toISOString() });
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Reached-hospital maadalu aagalilla. Wapas try maadi.';
+      Alert.alert('Error', msg);
+    } finally {
+      setMarkingReachedHospital(false);
+    }
+  };
+
+  const startReturn = async () => {
+    if (!activeTrip) return;
+    setStartingReturn(true);
+    try {
+      await tripsApi.startReturn(activeTrip._id);
+      setActiveTrip({ ...activeTrip, returnStartedAt: new Date().toISOString() });
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Return start maadalu aagalilla. Wapas try maadi.';
+      Alert.alert('Error', msg);
+    } finally {
+      setStartingReturn(false);
+    }
+  };
+
   const completeTrip = () => {
     if (!activeTrip) return;
     Alert.alert(
@@ -636,6 +667,31 @@ export default function DriverDashboard({ navigation, route }) {
               <View style={styles.inProgressBadge}>
                 <Text style={styles.inProgressTxt}>✅ Pickup Verified — En Route to hospital</Text>
               </View>
+
+              {!activeTrip.reachedHospitalAt && (
+                <TouchableOpacity
+                  style={styles.reachedHospitalBtn}
+                  onPress={reachedHospital}
+                  disabled={markingReachedHospital}
+                >
+                  <Text style={styles.reachedHospitalBtnTxt}>
+                    {markingReachedHospital ? 'Marking...' : '🏥 Reached Hospital'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {activeTrip.reachedHospitalAt && activeTrip.tripType === 'round_trip' && !activeTrip.returnStartedAt && (
+                <TouchableOpacity
+                  style={styles.startReturnBtn}
+                  onPress={startReturn}
+                  disabled={startingReturn}
+                >
+                  <Text style={styles.startReturnBtnTxt}>
+                    {startingReturn ? 'Starting...' : '↩ Starting Return'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+
               <TouchableOpacity
                 style={styles.completeBtn}
                 onPress={completeTrip}
@@ -882,6 +938,24 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(16,185,129,0.3)',
   },
   inProgressTxt: { color: '#10b981', fontSize: 14, fontWeight: '700' },
+
+  reachedHospitalBtn: {
+    backgroundColor: '#8b5cf6',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  reachedHospitalBtnTxt: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+
+  startReturnBtn: {
+    backgroundColor: '#06b6d4',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  startReturnBtnTxt: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 
   completeBtn: {
     backgroundColor: '#f59e0b',
