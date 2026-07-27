@@ -82,6 +82,9 @@ export const tripsApi = {
   complete: (id, data) => api.put(`/trips/${id}/complete`, data || {}),
   confirm: (id) => api.put(`/trips/${id}/confirm`),
   decline: (id) => api.put(`/trips/${id}/decline`),
+  // Masked calling via Exotel — backend no longer sends patientPhone to
+  // drivers, so this places the call server-side instead of a tel: link.
+  connectCall: (tripId, initiator) => api.post('/call/connect', { tripId, initiator }),
 };
 
 // Driver-onboarding flow — ON DUTY toggle on DriverDashboard, backed by the

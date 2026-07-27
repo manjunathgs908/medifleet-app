@@ -1,11 +1,5 @@
 @AGENTS.md
 
-## Hard rules
-
-- **Never read or edit files outside this repo.** If you need to know a
-  backend contract, ask — don't go searching sibling directories or open
-  files in `medifleet-backend` (or any other repo) directly.
-
 ## Backend contract — wait-charge feature (medifleet-backend, do not guess)
 
 ```

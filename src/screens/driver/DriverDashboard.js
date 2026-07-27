@@ -79,6 +79,7 @@ export default function DriverDashboard({ navigation, route }) {
 
   const [markingReachedHospital, setMarkingReachedHospital] = useState(false);
   const [startingReturn, setStartingReturn] = useState(false);
+  const [callingCustomer, setCallingCustomer] = useState(false);
 
   const [completingTrip, setCompletingTrip] = useState(false);
 
@@ -446,6 +447,23 @@ export default function DriverDashboard({ navigation, route }) {
     }
   };
 
+  // Masked calling via Exotel — backend no longer sends patientPhone to
+  // drivers (see tripController.js:getTrips), so this places a masked
+  // call through POST /api/call/connect instead of a tel: link.
+  const callCustomer = async () => {
+    if (!activeTrip) return;
+    setCallingCustomer(true);
+    try {
+      await tripsApi.connectCall(activeTrip._id, 'driver');
+      Alert.alert('Calling Customer', 'Nimma phone ge shortly ring aagatte — connect aagalu answer maadi.');
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Call connect maadalu aagalilla. Wapas try maadi.';
+      Alert.alert('Error', msg);
+    } finally {
+      setCallingCustomer(false);
+    }
+  };
+
   const completeTrip = () => {
     if (!activeTrip) return;
     Alert.alert(
@@ -585,9 +603,15 @@ export default function DriverDashboard({ navigation, route }) {
           </View>
 
           <Text style={styles.patientName}>{activeTrip.patientName}</Text>
-          {activeTrip.patientPhone && activeTrip.patientPhone !== 'N/A' && (
-            <Text style={styles.patientPhone}>📞 {activeTrip.patientPhone}</Text>
-          )}
+          <TouchableOpacity
+            style={[styles.callCustomerBtn, callingCustomer && styles.callCustomerBtnDisabled]}
+            onPress={callCustomer}
+            disabled={callingCustomer}
+          >
+            {callingCustomer
+              ? <ActivityIndicator size="small" color="#10b981" />
+              : <Text style={styles.callCustomerBtnTxt}>📞 Call Customer</Text>}
+          </TouchableOpacity>
 
           <View style={styles.tripRow}>
             <Text style={styles.tripLabel}>📍 Pickup</Text>
@@ -877,7 +901,21 @@ const styles = StyleSheet.create({
   tripHeader: { marginBottom: 8 },
   tripHeaderTxt: { color: '#3b82f6', fontSize: 13, fontWeight: '700' },
   patientName: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-  patientPhone: { color: '#9ca3af', fontSize: 13, marginTop: 2, marginBottom: 10 },
+  callCustomerBtn: {
+    flexDirection: 'row',
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    marginTop: 6,
+    marginBottom: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: 'rgba(16,185,129,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.4)',
+  },
+  callCustomerBtnDisabled: { opacity: 0.6 },
+  callCustomerBtnTxt: { color: '#10b981', fontSize: 13, fontWeight: '700' },
 
   tripRow: { marginBottom: 8 },
   tripLabel: { color: '#6b7280', fontSize: 11, fontWeight: '600', marginBottom: 2 },
