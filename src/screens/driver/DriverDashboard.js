@@ -258,7 +258,7 @@ export default function DriverDashboard({ navigation, route }) {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
           if (mounted) {
-            setErrorMsg('Location permission beku. Settings alli allow maadi.');
+            setErrorMsg('Location permission is required. Please allow it in Settings.');
             setLoading(false);
           }
           return;
@@ -284,7 +284,7 @@ export default function DriverDashboard({ navigation, route }) {
         }
       } catch (err) {
         if (mounted) {
-          setErrorMsg('Location tegeyalu aagalilla. GPS on ideya check maadi.');
+          setErrorMsg('Could not get your location. Check that GPS is turned on.');
           setLoading(false);
         }
       }
@@ -461,7 +461,7 @@ export default function DriverDashboard({ navigation, route }) {
       const { data } = await tripsApi.arrivePickup(activeTrip._id);
       setActiveTrip({ ...activeTrip, arrivedAtPickupAt: data.arrivedAtPickupAt });
     } catch (err) {
-      Alert.alert('Error', 'Reached-pickup maadalu aagalilla. Wapas try maadi.');
+      Alert.alert('Error', "Couldn't mark reached pickup. Please try again.");
     } finally {
       setArrivingPickup(false);
     }
@@ -469,7 +469,7 @@ export default function DriverDashboard({ navigation, route }) {
 
   const verifyOtp = async () => {
     if (!activeTrip || otpInput.length !== 4) {
-      Alert.alert('Sari illa', '4-digit OTP haaki.');
+      Alert.alert('Incomplete', 'Enter the 4-digit OTP.');
       return;
     }
     setVerifyingOtp(true);
@@ -477,9 +477,9 @@ export default function DriverDashboard({ navigation, route }) {
       await tripsApi.verifyOtp(activeTrip._id, otpInput);
       setActiveTrip({ ...activeTrip, pickupVerified: true });
       setOtpInput('');
-      Alert.alert('✅ Verified', 'Patient pickup confirm aaytu!');
+      Alert.alert('✅ Verified', 'Patient pickup confirmed!');
     } catch (err) {
-      const msg = err?.response?.data?.message || 'OTP sari illa. Wapas try maadi.';
+      const msg = err?.response?.data?.message || 'Incorrect OTP. Please try again.';
       Alert.alert('Error', msg);
     } finally {
       setVerifyingOtp(false);
@@ -493,7 +493,7 @@ export default function DriverDashboard({ navigation, route }) {
       await tripsApi.reachedHospital(activeTrip._id, driverLoc?.latitude, driverLoc?.longitude);
       setActiveTrip({ ...activeTrip, reachedHospitalAt: new Date().toISOString() });
     } catch (err) {
-      const msg = err?.response?.data?.message || 'Reached-hospital maadalu aagalilla. Wapas try maadi.';
+      const msg = err?.response?.data?.message || "Couldn't mark reached hospital. Please try again.";
       Alert.alert('Error', msg);
     } finally {
       setMarkingReachedHospital(false);
@@ -507,7 +507,7 @@ export default function DriverDashboard({ navigation, route }) {
       await tripsApi.startReturn(activeTrip._id);
       setActiveTrip({ ...activeTrip, returnStartedAt: new Date().toISOString() });
     } catch (err) {
-      const msg = err?.response?.data?.message || 'Return start maadalu aagalilla. Wapas try maadi.';
+      const msg = err?.response?.data?.message || "Couldn't start the return trip. Please try again.";
       Alert.alert('Error', msg);
     } finally {
       setStartingReturn(false);
@@ -522,9 +522,9 @@ export default function DriverDashboard({ navigation, route }) {
     setCallingCustomer(true);
     try {
       await tripsApi.connectCall(activeTrip._id, 'driver');
-      Alert.alert('Calling Customer', 'Nimma phone ge shortly ring aagatte — connect aagalu answer maadi.');
+      Alert.alert('Calling Customer', 'Your phone will ring shortly — answer it to connect.');
     } catch (err) {
-      const msg = err?.response?.data?.message || 'Call connect maadalu aagalilla. Wapas try maadi.';
+      const msg = err?.response?.data?.message || "Couldn't connect the call. Please try again.";
       Alert.alert('Error', msg);
     } finally {
       setCallingCustomer(false);
@@ -534,8 +534,8 @@ export default function DriverDashboard({ navigation, route }) {
   const completeTrip = () => {
     if (!activeTrip) return;
     Alert.alert(
-      'Trip Complete maadu?',
-      'Hospital ge patient drop aaythaa? Idannu maadidmele trip close aagatte, bill generate aagatte.',
+      'Complete Trip?',
+      'Has the patient been dropped at the hospital? Once you confirm, the trip will close and the bill will be generated.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -549,9 +549,9 @@ export default function DriverDashboard({ navigation, route }) {
               distanceAccumRef.current = 0;
               lastFixRef.current = null;
               setActiveTrip(null);
-              Alert.alert('🎉 Trip Completed', 'Bill generate aagide. Munde trip ge ready aagi.');
+              Alert.alert('🎉 Trip Completed', 'Bill generated. Get ready for the next trip.');
             } catch (err) {
-              const msg = err?.response?.data?.message || 'Trip complete maadalu aagalilla.';
+              const msg = err?.response?.data?.message || "Couldn't complete the trip.";
               Alert.alert('Error', msg);
             } finally {
               setCompletingTrip(false);
@@ -623,7 +623,7 @@ export default function DriverDashboard({ navigation, route }) {
       const destination = hasCoords ? `${lat},${lng}` : encodeURIComponent(address);
       await Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`);
     } catch (err) {
-      Alert.alert('Error', 'Maps open maadalu aagalilla.');
+      Alert.alert('Error', "Couldn't open Maps.");
     }
   };
 
@@ -902,7 +902,7 @@ export default function DriverDashboard({ navigation, route }) {
 
             {activeTrip.status === 'en_route' && activeTrip.arrivedAtPickupAt && !activeTrip.pickupVerified && (
               <View style={styles.otpSection}>
-                <Text style={styles.otpLabel}>Patient hattira iruva 4-digit OTP haaki:</Text>
+                <Text style={styles.otpLabel}>Enter the 4-digit OTP from the patient:</Text>
                 <View style={styles.otpRow}>
                   <TextInput
                     style={styles.otpInput}
