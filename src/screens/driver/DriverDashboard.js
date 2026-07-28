@@ -46,6 +46,15 @@ const BANGALORE = {
 const LOCATION_UPDATE_INTERVAL_MS = 10000;
 const TRIP_POLL_INTERVAL_MS = 15000;
 
+// GPS-proximity gate for "Reached Pickup"/"Reached Hospital" — a UI
+// convenience only (never used for fare/billing, which stays server-side
+// on verified road distance). PROXIMITY_METERS is how close the driver
+// must be for the button to appear; GPS_STALE_MS is the safety override —
+// if no GPS fix has landed in that long, show the button anyway rather
+// than leaving the driver stuck.
+const PROXIMITY_METERS = 100;
+const GPS_STALE_MS = 2 * 60 * 1000;
+
 // Straight-line distance between two GPS fixes — same formula used
 // server-side and in the customer app, kept local here (no shared util
 // package between apps) so distance can be accumulated client-side
@@ -74,19 +83,23 @@ export default function DriverDashboard({ navigation, route }) {
 
   const [region, setRegion] = useState(BANGALORE);
   const [driverLoc, setDriverLoc] = useState(null);
+  // Timestamp of the last real GPS fix — the safety override for the
+  // proximity gate below reads this: if GPS goes stale, never leave the
+  // driver stuck with no button.
+  const [driverLocUpdatedAt, setDriverLocUpdatedAt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
 
   const [activeTrip, setActiveTrip] = useState(null);
-  const [startingTrip, setStartingTrip] = useState(false);
   const activeTripRef = useRef(null); // mirrors activeTrip for the GPS-loop effect below (which has [] deps, so it can't read state directly without going stale)
 
-  // Driver -> pickup route line on the active-trip map. Only meaningful
-  // pre-verification — there's no drop coordinate anywhere in this backend
-  // (Hospital has no lat/lng, dropAddress is free text only), so this never
-  // has anything to draw once pickupVerified flips; cleared at that point.
+  // Driver -> current-leg route line on the active-trip map (pickup before
+  // OTP verification, drop after — drop only draws when the trip actually
+  // has dropLat/dropLng, which is now persisted by the backend but still
+  // optional: older trips or an un-updated client may not have it).
   const [routeCoords, setRouteCoords] = useState([]);
   const lastRouteOriginRef = useRef(null); // throttle re-fetch to real movement, not every 10s GPS ping
+  const routeTargetLegRef = useRef(null); // 'pickup' | 'drop' | null — detects a leg switch so the throttle above doesn't wrongly suppress the first fetch for the new target
 
   const [arrivingPickup, setArrivingPickup] = useState(false);
 
@@ -261,6 +274,7 @@ export default function DriverDashboard({ navigation, route }) {
             longitude: loc.coords.longitude,
           };
           setDriverLoc(coords);
+          setDriverLocUpdatedAt(Date.now());
           setRegion({
             ...coords,
             latitudeDelta: 0.01,
@@ -302,6 +316,7 @@ export default function DriverDashboard({ navigation, route }) {
         const { latitude, longitude } = loc.coords;
 
         setDriverLoc({ latitude, longitude });
+        setDriverLocUpdatedAt(Date.now());
 
         if (activeTripRef.current?.status === 'en_route') {
           if (lastFixRef.current) {
@@ -362,7 +377,23 @@ export default function DriverDashboard({ navigation, route }) {
           return;
         }
 
-        const trip = trips.find(t => (t.status === 'dispatched' && t.driverConfirmed) || t.status === 'en_route');
+        let trip = trips.find(t => (t.status === 'dispatched' && t.driverConfirmed) || t.status === 'en_route');
+
+        // Self-heal: accepting a trip auto-advances it to 'en_route' (see
+        // TripAssignedScreen's handleAccept) — there's no "Trip Started"
+        // button anymore for the driver to fall back on. If that one-shot
+        // call didn't land, a trip can be found here still sitting at
+        // 'dispatched' (accepted, confirmed, just not yet advanced) —
+        // retry the same transition every poll tick until it succeeds.
+        if (trip && trip.status === 'dispatched' && trip.driverConfirmed) {
+          try {
+            const { data: startedData } = await tripsApi.updateStatus(trip._id, 'en_route');
+            trip = startedData.trip;
+          } catch (startErr) {
+            // Silent — next poll tick (still 'dispatched') retries again.
+          }
+        }
+
         setActiveTrip(trip || null);
       } catch (err) {
         // Silent — next interval tick will retry automatically.
@@ -387,16 +418,29 @@ export default function DriverDashboard({ navigation, route }) {
     }
   }, [route?.params?.confirmedTrip]);
 
-  // ── Driver -> pickup route line for the active-trip map. Throttled to
-  //    real movement (300m), not every 10s GPS ping, to avoid hammering
-  //    the backend's rate-limited /api/places/* endpoints. ──
+  // ── Driver -> current-leg route line for the active-trip map. Pickup
+  //    before OTP verification, drop after. Throttled to real movement
+  //    (300m), not every 10s GPS ping, to avoid hammering the backend's
+  //    rate-limited /api/places/* endpoints. ──
   useEffect(() => {
-    const pickupLat = activeTrip?.pickup?.lat;
-    const pickupLng = activeTrip?.pickup?.lng;
-    if (!activeTrip || activeTrip.pickupVerified || !driverLoc || pickupLat == null || pickupLng == null) {
+    const leg = activeTrip?.pickupVerified ? 'drop' : 'pickup';
+    const targetLat = leg === 'drop' ? activeTrip?.dropLat : activeTrip?.pickup?.lat;
+    const targetLng = leg === 'drop' ? activeTrip?.dropLng : activeTrip?.pickup?.lng;
+
+    if (!activeTrip || !driverLoc || targetLat == null || targetLng == null) {
       setRouteCoords([]);
       lastRouteOriginRef.current = null;
+      routeTargetLegRef.current = null;
       return;
+    }
+
+    if (routeTargetLegRef.current !== leg) {
+      // Leg just switched (pickup -> drop) or this is the first run for
+      // it — force a fresh fetch regardless of how far the driver has
+      // moved since the last one (that distance was toward a different
+      // target).
+      lastRouteOriginRef.current = null;
+      routeTargetLegRef.current = leg;
     }
 
     const last = lastRouteOriginRef.current;
@@ -404,27 +448,11 @@ export default function DriverDashboard({ navigation, route }) {
 
     lastRouteOriginRef.current = driverLoc;
     let cancelled = false;
-    getRouteInfo(driverLoc, { latitude: pickupLat, longitude: pickupLng }).then((info) => {
+    getRouteInfo(driverLoc, { latitude: targetLat, longitude: targetLng }).then((info) => {
       if (!cancelled && info) setRouteCoords(info.coords);
     });
     return () => { cancelled = true; };
-  }, [activeTrip?._id, activeTrip?.pickupVerified, driverLoc]);
-
-  const startTrip = async () => {
-    if (!activeTrip) return;
-    setStartingTrip(true);
-    try {
-      await tripsApi.updateStatus(activeTrip._id, 'en_route');
-      distanceAccumRef.current = 0;
-      lastFixRef.current = null;
-      setActiveTrip({ ...activeTrip, status: 'en_route' });
-      Alert.alert('Trip Started', 'Safe driving! Patient/hospital ge navigate maadi.');
-    } catch (err) {
-      Alert.alert('Error', 'Trip start maadalu aagalilla. Wapas try maadi.');
-    } finally {
-      setStartingTrip(false);
-    }
-  };
+  }, [activeTrip?._id, activeTrip?.pickupVerified, activeTrip?.dropLat, activeTrip?.dropLng, driverLoc]);
 
   const arrivePickup = async () => {
     if (!activeTrip) return;
@@ -600,10 +628,11 @@ export default function DriverDashboard({ navigation, route }) {
   };
 
   // Before pickup OTP is verified: navigate to pickup (has real lat/lng on
-  // every trip). After: navigate to drop — this backend has no drop
-  // coordinate anywhere (Hospital has no lat/lng, dropAddress is free text
-  // only), so that leg always uses the address/hospital-name text instead.
-  // null when there's nothing usable to navigate to (hidden in the JSX below).
+  // every trip). After: navigate to drop — prefers the trip's real
+  // dropLat/dropLng (now persisted server-side) and falls back to the
+  // address/hospital-name text for older trips or an un-updated client
+  // that don't have it, same pattern as the pickup branch. null when
+  // there's nothing usable to navigate to (hidden in the JSX below).
   let navTarget = null;
   if (activeTrip) {
     if (!activeTrip.pickupVerified) {
@@ -614,9 +643,11 @@ export default function DriverDashboard({ navigation, route }) {
         navTarget = { label: '🧭 Navigate to Pickup', lat, lng, address };
       }
     } else {
+      const lat = activeTrip.dropLat;
+      const lng = activeTrip.dropLng;
       const address = activeTrip.dropHospital?.name || activeTrip.dropAddress;
-      if (address) {
-        navTarget = { label: '🧭 Navigate to Drop', lat: null, lng: null, address };
+      if ((typeof lat === 'number' && typeof lng === 'number') || address) {
+        navTarget = { label: '🧭 Navigate to Drop', lat, lng, address };
       }
     }
   }
@@ -631,6 +662,50 @@ export default function DriverDashboard({ navigation, route }) {
         ? (activeTrip.pickup?.address || '—')
         : (activeTrip.dropHospital?.name || activeTrip.dropAddress || '—'))
     : '';
+
+  // GPS-proximity gate for "Reached Pickup"/"Reached Hospital" (Ola/Uber-
+  // style) — straight-line Haversine distance, deliberately: this is only
+  // a UI convenience for when the button appears, never used for
+  // fare/billing (that stays server-side on verified road distance, see
+  // medifleet-backend's createTrip). Always resolves to "show the button"
+  // (withinRange: true) rather than blocking the driver whenever:
+  //  - the trip has no coordinate for this leg to check against, or
+  //  - GPS hasn't produced a fix in over GPS_STALE_MS (safety override).
+  const gpsIsStale = !driverLocUpdatedAt || (Date.now() - driverLocUpdatedAt) > GPS_STALE_MS;
+
+  function proximityGate(targetLat, targetLng) {
+    if (typeof targetLat !== 'number' || typeof targetLng !== 'number') {
+      return { withinRange: true, distanceKm: null };
+    }
+    if (!driverLoc || gpsIsStale) {
+      const distanceKm = driverLoc
+        ? haversineKm(driverLoc.latitude, driverLoc.longitude, targetLat, targetLng)
+        : null;
+      return { withinRange: true, distanceKm };
+    }
+    const distanceKm = haversineKm(driverLoc.latitude, driverLoc.longitude, targetLat, targetLng);
+    return { withinRange: distanceKm * 1000 <= PROXIMITY_METERS, distanceKm };
+  }
+
+  const pickupProximity = (activeTrip?.status === 'en_route' && !activeTrip.arrivedAtPickupAt)
+    ? proximityGate(activeTrip.pickup?.lat, activeTrip.pickup?.lng)
+    : null;
+
+  // Uses the trip's real dropLat/dropLng when the backend has them
+  // (persisted as of this pass). Falls back to "always show the button"
+  // via proximityGate's own no-coordinate branch for older trips or an
+  // un-updated client that don't have a drop coordinate yet.
+  const hospitalProximity = (activeTrip?.status === 'en_route' && activeTrip.pickupVerified && !activeTrip.reachedHospitalAt)
+    ? proximityGate(activeTrip.dropLat, activeTrip.dropLng)
+    : null;
+
+  const pickupStatusLine = pickupProximity && !pickupProximity.withinRange && pickupProximity.distanceKm != null
+    ? `Head to pickup — ${pickupProximity.distanceKm.toFixed(1)} km away`
+    : 'Heading to pickup...';
+
+  const hospitalStatusLine = hospitalProximity && !hospitalProximity.withinRange && hospitalProximity.distanceKm != null
+    ? `Heading to hospital — ${hospitalProximity.distanceKm.toFixed(1)} km away`
+    : 'Heading to hospital...';
 
   return (
     <View style={styles.container}>
@@ -662,11 +737,19 @@ export default function DriverDashboard({ navigation, route }) {
           />
         )}
 
-        {/* No drop pin/route: this backend has no drop coordinate anywhere
-            (Hospital has no lat/lng, dropAddress is free text only) — see
-            openNavigation's comment above for the same limitation on the
-            Navigate button. The bottom sheet still switches to showing the
-            drop address once pickupVerified, just without a map pin for it. */}
+        {/* Drop pin — only draws when the trip actually has dropLat/dropLng
+            (persisted by the backend now, but still optional: older trips
+            or an un-updated client won't have it). The bottom sheet always
+            switches to showing the drop address once pickupVerified
+            regardless; this is just the map pin for it when a real
+            coordinate exists. */}
+        {activeTrip && !headingToPickup && activeTrip.dropLat != null && activeTrip.dropLng != null && (
+          <Marker
+            coordinate={{ latitude: activeTrip.dropLat, longitude: activeTrip.dropLng }}
+            title="Drop"
+            pinColor="#e8192c"
+          />
+        )}
 
         {activeTrip && routeCoords.length > 1 && (
           <Polyline coordinates={routeCoords} strokeColor="#14B8A6" strokeWidth={4} />
@@ -778,20 +861,30 @@ export default function DriverDashboard({ navigation, route }) {
               <Text style={styles.fareValue}>₹{activeTrip.baseFare || 0}</Text>
             </View>
 
+            {/* Accepting a trip now auto-advances it straight to 'en_route'
+                (see TripAssignedScreen's handleAccept + the poll-loop
+                self-heal above) — this 'dispatched' window is normally
+                just one brief moment, not a driver-facing step anymore. */}
             {activeTrip.status === 'dispatched' && (
-              <TouchableOpacity style={styles.primaryBtn} onPress={startTrip} disabled={startingTrip}>
-                {startingTrip
-                  ? <ActivityIndicator color="#fff" />
-                  : <Text style={styles.primaryBtnTxt}>▶ Trip Started</Text>}
-              </TouchableOpacity>
+              <View style={styles.proximityStatus}>
+                <ActivityIndicator size="small" color="#14B8A6" />
+                <Text style={styles.proximityStatusTxt}>Starting trip...</Text>
+              </View>
             )}
 
             {activeTrip.status === 'en_route' && !activeTrip.arrivedAtPickupAt && (
-              <TouchableOpacity style={styles.primaryBtn} onPress={arrivePickup} disabled={arrivingPickup}>
-                {arrivingPickup
-                  ? <ActivityIndicator color="#fff" />
-                  : <Text style={styles.primaryBtnTxt}>📍 Reached Pickup</Text>}
-              </TouchableOpacity>
+              pickupProximity?.withinRange ? (
+                <TouchableOpacity style={styles.primaryBtn} onPress={arrivePickup} disabled={arrivingPickup}>
+                  {arrivingPickup
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={styles.primaryBtnTxt}>📍 Reached Pickup</Text>}
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.proximityStatus}>
+                  <ActivityIndicator size="small" color="#14B8A6" />
+                  <Text style={styles.proximityStatusTxt}>{pickupStatusLine}</Text>
+                </View>
+              )
             )}
 
             {activeTrip.status === 'en_route' && activeTrip.arrivedAtPickupAt && !activeTrip.pickupVerified && (
@@ -827,11 +920,18 @@ export default function DriverDashboard({ navigation, route }) {
                 </View>
 
                 {!activeTrip.reachedHospitalAt && (
-                  <TouchableOpacity style={styles.primaryBtn} onPress={reachedHospital} disabled={markingReachedHospital}>
-                    {markingReachedHospital
-                      ? <ActivityIndicator color="#fff" />
-                      : <Text style={styles.primaryBtnTxt}>🏥 Reached Hospital</Text>}
-                  </TouchableOpacity>
+                  hospitalProximity?.withinRange ? (
+                    <TouchableOpacity style={styles.primaryBtn} onPress={reachedHospital} disabled={markingReachedHospital}>
+                      {markingReachedHospital
+                        ? <ActivityIndicator color="#fff" />
+                        : <Text style={styles.primaryBtnTxt}>🏥 Reached Hospital</Text>}
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.proximityStatus}>
+                      <ActivityIndicator size="small" color="#14B8A6" />
+                      <Text style={styles.proximityStatusTxt}>{hospitalStatusLine}</Text>
+                    </View>
+                  )
                 )}
 
                 {activeTrip.reachedHospitalAt && activeTrip.tripType === 'round_trip' && !activeTrip.returnStartedAt && (
@@ -1133,6 +1233,21 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   primaryBtnTxt: { color: '#fff', fontSize: 17, fontWeight: '800' },
+
+  // Shown instead of the primary action button while the driver is still
+  // outside the GPS-proximity radius (or the transient 'dispatched' window
+  // right after accepting) — same footprint as primaryBtn so nothing jumps.
+  proximityStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginTop: 14,
+  },
+  proximityStatusTxt: { color: '#475569', fontSize: 15, fontWeight: '600' },
 
   otpSection: { marginTop: 14 },
   otpLabel: { color: '#374151', fontSize: 14, marginBottom: 8, fontWeight: '600' },
