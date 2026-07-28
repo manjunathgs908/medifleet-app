@@ -87,6 +87,12 @@ export const tripsApi = {
   connectCall: (tripId, initiator) => api.post('/call/connect', { tripId, initiator }),
 };
 
+// Driver SOS / emergency alert — fire-and-forget from DriverDashboard's SOS
+// button. tripId is optional; a driver may hit SOS with no active trip.
+export const sosApi = {
+  trigger: (lat, lng, tripId) => api.post('/sos', { lat, lng, tripId }),
+};
+
 // Driver-onboarding flow — ON DUTY toggle on DriverDashboard, backed by the
 // existing Phase 3 Assignment/Shift endpoints (previously unused by the app).
 export const assignmentsApi = {

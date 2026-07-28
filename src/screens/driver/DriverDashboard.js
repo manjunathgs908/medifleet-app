@@ -6,7 +6,7 @@ import * as Location from 'expo-location';
 import * as Updates from 'expo-updates';
 import { BatteryOptEnabled } from 'react-native-battery-optimization-check';
 import { useAuth } from '../../context/AuthContext';
-import { driverAuthApi, tripsApi, assignmentsApi, authApi } from '../../api/client';
+import { driverAuthApi, tripsApi, assignmentsApi, authApi, sosApi } from '../../api/client';
 import { getDeviceId, checkInternet } from '../../utils/device';
 import { getRouteInfo } from '../../utils/routeUtils';
 
@@ -531,6 +531,28 @@ export default function DriverDashboard({ navigation, route }) {
     }
   };
 
+  // SOS / emergency button — always visible while on duty (idle or mid-trip).
+  // Safety rule: the phone call must always happen, even if GPS is
+  // unavailable, the network is down, or the backend request fails. The
+  // alert POST is fire-and-forget (not awaited) purely so a slow/failed
+  // request can never delay dialling; no error UI on failure either, since
+  // showing one would just get in the way of the call actually mattering.
+  const fireSos = () => {
+    sosApi.trigger(driverLoc?.latitude, driverLoc?.longitude, activeTrip?._id).catch(() => {});
+    Linking.openURL('tel:112').catch(() => {});
+  };
+
+  const handleSosPress = () => {
+    Alert.alert(
+      'Emergency SOS',
+      'Call 112 and alert the control room?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Call 112', style: 'destructive', onPress: fireSos },
+      ]
+    );
+  };
+
   const completeTrip = () => {
     if (!activeTrip) return;
     Alert.alert(
@@ -829,6 +851,12 @@ export default function DriverDashboard({ navigation, route }) {
         <Text style={styles.recenterIcon}>📍</Text>
       </TouchableOpacity>
 
+      {(onDuty || !!activeTrip) && (
+        <TouchableOpacity style={[styles.sosBtn, activeTrip && styles.sosBtnActiveTrip]} onPress={handleSosPress}>
+          <Text style={styles.sosBtnTxt}>SOS</Text>
+        </TouchableOpacity>
+      )}
+
       {activeTrip && (
         <View style={styles.activeHeader}>
           <Text style={styles.activeHeaderBadge}>
@@ -1125,6 +1153,27 @@ const styles = StyleSheet.create({
   },
   recenterIcon: { fontSize: 22 },
   recenterBtnActiveTrip: { bottom: 380 },
+
+  // Mirrors recenterBtn on the opposite edge — same bottom offsets, so it
+  // never collides with the top header/duty card, the bottom nav/sheet, or
+  // the recenter/call buttons on the right, in either idle or active-trip state.
+  sosBtn: {
+    position: 'absolute',
+    left: 16,
+    bottom: 110,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#e8192c',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  sosBtnActiveTrip: { bottom: 380 },
+  sosBtnTxt: { color: '#fff', fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
 
   driverMarker: {
     width: 40,
