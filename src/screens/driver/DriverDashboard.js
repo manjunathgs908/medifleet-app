@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView, TextInput, Switch, Platform, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView, TextInput, Switch, Platform, Modal, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -524,6 +524,52 @@ export default function DriverDashboard({ navigation, route }) {
     }
   };
 
+  // Turn-by-turn navigation to the current leg — Android tries the native
+  // Google Maps navigation intent first (drops straight into turn-by-turn),
+  // falling back to the universal Maps directions URL everywhere else (iOS,
+  // or if Google Maps isn't installed on Android). destination can be
+  // coordinates or a free-text address — Maps accepts both. Pure Linking
+  // API, no native module, so this stays OTA-safe.
+  const openNavigation = async (lat, lng, address) => {
+    const hasCoords = typeof lat === 'number' && typeof lng === 'number';
+    if (!hasCoords && !address) return;
+    try {
+      if (Platform.OS === 'android' && hasCoords) {
+        const navUrl = `google.navigation:q=${lat},${lng}`;
+        if (await Linking.canOpenURL(navUrl)) {
+          await Linking.openURL(navUrl);
+          return;
+        }
+      }
+      const destination = hasCoords ? `${lat},${lng}` : encodeURIComponent(address);
+      await Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${destination}`);
+    } catch (err) {
+      Alert.alert('Error', 'Maps open maadalu aagalilla.');
+    }
+  };
+
+  // Before pickup OTP is verified: navigate to pickup (has real lat/lng on
+  // every trip). After: navigate to drop — this backend has no drop
+  // coordinate anywhere (Hospital has no lat/lng, dropAddress is free text
+  // only), so that leg always uses the address/hospital-name text instead.
+  // null when there's nothing usable to navigate to (hidden in the JSX below).
+  let navTarget = null;
+  if (activeTrip) {
+    if (!activeTrip.pickupVerified) {
+      const lat = activeTrip.pickup?.lat;
+      const lng = activeTrip.pickup?.lng;
+      const address = activeTrip.pickup?.address;
+      if ((typeof lat === 'number' && typeof lng === 'number') || address) {
+        navTarget = { label: '🧭 Navigate to Pickup', lat, lng, address };
+      }
+    } else {
+      const address = activeTrip.dropHospital?.name || activeTrip.dropAddress;
+      if (address) {
+        navTarget = { label: '🧭 Navigate to Drop', lat: null, lng: null, address };
+      }
+    }
+  }
+
   return (
     <View style={styles.container}>
       <MapView
@@ -635,6 +681,16 @@ export default function DriverDashboard({ navigation, route }) {
             <Text style={styles.tripLabel}>💰 Fare</Text>
             <Text style={styles.tripValue}>₹{activeTrip.baseFare || 0}</Text>
           </View>
+
+          {navTarget && (
+            <TouchableOpacity
+              style={styles.navigateBtn}
+              onPress={() => openNavigation(navTarget.lat, navTarget.lng, navTarget.address)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.navigateBtnTxt}>{navTarget.label}</Text>
+            </TouchableOpacity>
+          )}
 
           {activeTrip.status === 'dispatched' && (
             <TouchableOpacity
@@ -920,6 +976,23 @@ const styles = StyleSheet.create({
   tripRow: { marginBottom: 8 },
   tripLabel: { color: '#6b7280', fontSize: 11, fontWeight: '600', marginBottom: 2 },
   tripValue: { color: '#e5e7eb', fontSize: 14 },
+
+  // Deliberately bigger than the other trip-card buttons below — one-hand,
+  // in-a-hurry thumb target, and the driver's primary action for this leg.
+  navigateBtn: {
+    backgroundColor: '#2563eb',
+    borderRadius: 16,
+    paddingVertical: 20,
+    alignItems: 'center',
+    marginTop: 6,
+    marginBottom: 4,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  navigateBtnTxt: { color: '#fff', fontSize: 19, fontWeight: '800', letterSpacing: 0.3 },
 
   startBtn: {
     backgroundColor: '#10b981',
