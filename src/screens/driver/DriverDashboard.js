@@ -707,6 +707,19 @@ export default function DriverDashboard({ navigation, route }) {
     ? `Heading to hospital — ${hospitalProximity.distanceKm.toFixed(1)} km away`
     : 'Heading to hospital...';
 
+  // Trip Completed must not be reachable before the hospital step is
+  // actually done — otherwise reachedHospitalAt (and, for round trips,
+  // returnStartedAt) never gets set, the drop wait segment never opens,
+  // and drop wait charges silently come out to zero. One-way trips need
+  // reachedHospitalAt; round trips need returnStartedAt (keeps the
+  // existing Reached Hospital -> Starting Return -> Complete order).
+  // Doesn't touch Reached Hospital's own gating above (proximity/
+  // no-coordinate/GPS-stale fallbacks all untouched) — once that button
+  // is reachable and tapped, this gate opens on its own.
+  const canCompleteTrip = activeTrip?.tripType === 'round_trip'
+    ? !!activeTrip?.returnStartedAt
+    : !!activeTrip?.reachedHospitalAt;
+
   return (
     <View style={styles.container}>
       <MapView
@@ -942,11 +955,13 @@ export default function DriverDashboard({ navigation, route }) {
                   </TouchableOpacity>
                 )}
 
-                <TouchableOpacity style={styles.primaryBtn} onPress={completeTrip} disabled={completingTrip}>
-                  {completingTrip
-                    ? <ActivityIndicator color="#fff" />
-                    : <Text style={styles.primaryBtnTxt}>🏁 Trip Completed</Text>}
-                </TouchableOpacity>
+                {canCompleteTrip && (
+                  <TouchableOpacity style={styles.primaryBtn} onPress={completeTrip} disabled={completingTrip}>
+                    {completingTrip
+                      ? <ActivityIndicator color="#fff" />
+                      : <Text style={styles.primaryBtnTxt}>🏁 Trip Completed</Text>}
+                  </TouchableOpacity>
+                )}
               </>
             )}
           </ScrollView>
