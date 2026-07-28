@@ -1,13 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView, TextInput, Switch, Platform, Modal, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as Updates from 'expo-updates';
 import { BatteryOptEnabled } from 'react-native-battery-optimization-check';
 import { useAuth } from '../../context/AuthContext';
 import { driverAuthApi, tripsApi, assignmentsApi, authApi } from '../../api/client';
 import { getDeviceId, checkInternet } from '../../utils/device';
+import { getRouteInfo } from '../../utils/routeUtils';
+
+// e.g. "bls_tempo" -> "BLS TEMPO", "dead-body" -> "DEAD BODY" — same
+// word-splitting TripAssignedScreen.js's formatAmbulanceType uses,
+// uppercased to match the header badge style.
+function formatAmbulanceBadge(selectedType) {
+  if (!selectedType) return 'AMBULANCE';
+  return String(selectedType).split(/[-_\s]+/).filter(Boolean).join(' ').toUpperCase();
+}
 
 // Must match AuthContext.js's own OWNER_BACKUP_KEY — that's where
 // startDutyAsOwner backs up the owner's tokens while this driver session
@@ -71,6 +80,13 @@ export default function DriverDashboard({ navigation, route }) {
   const [activeTrip, setActiveTrip] = useState(null);
   const [startingTrip, setStartingTrip] = useState(false);
   const activeTripRef = useRef(null); // mirrors activeTrip for the GPS-loop effect below (which has [] deps, so it can't read state directly without going stale)
+
+  // Driver -> pickup route line on the active-trip map. Only meaningful
+  // pre-verification — there's no drop coordinate anywhere in this backend
+  // (Hospital has no lat/lng, dropAddress is free text only), so this never
+  // has anything to draw once pickupVerified flips; cleared at that point.
+  const [routeCoords, setRouteCoords] = useState([]);
+  const lastRouteOriginRef = useRef(null); // throttle re-fetch to real movement, not every 10s GPS ping
 
   const [arrivingPickup, setArrivingPickup] = useState(false);
 
@@ -371,6 +387,29 @@ export default function DriverDashboard({ navigation, route }) {
     }
   }, [route?.params?.confirmedTrip]);
 
+  // ── Driver -> pickup route line for the active-trip map. Throttled to
+  //    real movement (300m), not every 10s GPS ping, to avoid hammering
+  //    the backend's rate-limited /api/places/* endpoints. ──
+  useEffect(() => {
+    const pickupLat = activeTrip?.pickup?.lat;
+    const pickupLng = activeTrip?.pickup?.lng;
+    if (!activeTrip || activeTrip.pickupVerified || !driverLoc || pickupLat == null || pickupLng == null) {
+      setRouteCoords([]);
+      lastRouteOriginRef.current = null;
+      return;
+    }
+
+    const last = lastRouteOriginRef.current;
+    if (last && haversineKm(last.latitude, last.longitude, driverLoc.latitude, driverLoc.longitude) < 0.3) return;
+
+    lastRouteOriginRef.current = driverLoc;
+    let cancelled = false;
+    getRouteInfo(driverLoc, { latitude: pickupLat, longitude: pickupLng }).then((info) => {
+      if (!cancelled && info) setRouteCoords(info.coords);
+    });
+    return () => { cancelled = true; };
+  }, [activeTrip?._id, activeTrip?.pickupVerified, driverLoc]);
+
   const startTrip = async () => {
     if (!activeTrip) return;
     setStartingTrip(true);
@@ -524,25 +563,37 @@ export default function DriverDashboard({ navigation, route }) {
     }
   };
 
-  // Turn-by-turn navigation to the current leg — Android tries the native
-  // Google Maps navigation intent first (drops straight into turn-by-turn),
-  // falling back to the universal Maps directions URL everywhere else (iOS,
-  // or if Google Maps isn't installed on Android). destination can be
-  // coordinates or a free-text address — Maps accepts both. Pure Linking
-  // API, no native module, so this stays OTA-safe.
+  // Turn-by-turn navigation to the current leg.
+  //
+  // Deliberately NOT the google.navigation: custom scheme — that's what
+  // was causing Android's app-chooser to pop up. A custom scheme has no
+  // single "owner": Android has to ask whenever more than one installed
+  // app (Maps, Waze, a work-profile duplicate, etc.) registers a handler
+  // for it. https://www.google.com/maps/dir/... is different: it's a
+  // Google-verified Android App Link, so when Google Maps is installed,
+  // ACTION_VIEW on this exact host+path routes straight to it with zero
+  // chooser — that's the whole point of App Link verification, and it's
+  // also how Google Maps registers its iOS Universal Link, so one URL
+  // covers both platforms. If Maps isn't installed, the identical URL
+  // just opens in the browser — no separate installed-check needed.
+  //
+  // (True package-pinning like Ola/Uber's native Intent.setPackage() was
+  // considered — an intent://...#Intent;package=...;end URL — but RN's
+  // Linking.openURL() on Android just does Uri.parse(url) + ACTION_VIEW
+  // (see node_modules/react-native/.../IntentModule.kt); it never calls
+  // Intent.parseUri(url, URI_INTENT_SCHEME), which is the only thing that
+  // understands that syntax. That's a Chrome/WebView convention for <a
+  // href> navigation, not a general Android ACTION_VIEW behavior, so an
+  // intent:// URL passed to Linking.openURL fails outright — it doesn't
+  // fall back to a chooser, it just doesn't open. Real package-pinning
+  // needs a native module, e.g. expo-intent-launcher, which would need a
+  // new EAS Build, not just an OTA update.)
   const openNavigation = async (lat, lng, address) => {
     const hasCoords = typeof lat === 'number' && typeof lng === 'number';
     if (!hasCoords && !address) return;
     try {
-      if (Platform.OS === 'android' && hasCoords) {
-        const navUrl = `google.navigation:q=${lat},${lng}`;
-        if (await Linking.canOpenURL(navUrl)) {
-          await Linking.openURL(navUrl);
-          return;
-        }
-      }
       const destination = hasCoords ? `${lat},${lng}` : encodeURIComponent(address);
-      await Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${destination}`);
+      await Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`);
     } catch (err) {
       Alert.alert('Error', 'Maps open maadalu aagalilla.');
     }
@@ -570,6 +621,17 @@ export default function DriverDashboard({ navigation, route }) {
     }
   }
 
+  // Header badge + bottom-sheet location card — both flip on the same
+  // pickupVerified toggle as navTarget above, so the whole screen reads as
+  // one consistent "which leg am I on" state.
+  const headingToPickup = !!activeTrip && !activeTrip.pickupVerified;
+  const locationLabel = headingToPickup ? 'PICKUP LOCATION' : 'DROP LOCATION';
+  const locationAddress = activeTrip
+    ? (headingToPickup
+        ? (activeTrip.pickup?.address || '—')
+        : (activeTrip.dropHospital?.name || activeTrip.dropAddress || '—'))
+    : '';
+
   return (
     <View style={styles.container}>
       <MapView
@@ -577,10 +639,39 @@ export default function DriverDashboard({ navigation, route }) {
         provider={PROVIDER_GOOGLE}
         style={StyleSheet.absoluteFill}
         region={region}
-        showsUserLocation={true}
+        showsUserLocation={!activeTrip}
         showsMyLocationButton={false}
         showsCompass={true}
-      />
+      >
+        {/* Custom marker instead of the native blue dot during an active
+            trip, so it reads as "your ambulance" the same way Ola/Uber
+            show the driver's own vehicle on their live map. */}
+        {activeTrip && driverLoc && (
+          <Marker coordinate={driverLoc} anchor={{ x: 0.5, y: 0.5 }} flat>
+            <View style={styles.driverMarker}>
+              <Text style={{ fontSize: 20 }}>🚑</Text>
+            </View>
+          </Marker>
+        )}
+
+        {activeTrip && headingToPickup && activeTrip.pickup?.lat != null && activeTrip.pickup?.lng != null && (
+          <Marker
+            coordinate={{ latitude: activeTrip.pickup.lat, longitude: activeTrip.pickup.lng }}
+            title="Pickup"
+            pinColor="#14B8A6"
+          />
+        )}
+
+        {/* No drop pin/route: this backend has no drop coordinate anywhere
+            (Hospital has no lat/lng, dropAddress is free text only) — see
+            openNavigation's comment above for the same limitation on the
+            Navigate button. The bottom sheet still switches to showing the
+            drop address once pickupVerified, just without a map pin for it. */}
+
+        {activeTrip && routeCoords.length > 1 && (
+          <Polyline coordinates={routeCoords} strokeColor="#14B8A6" strokeWidth={4} />
+        )}
+      </MapView>
 
       {loading && (
         <View style={styles.loadingOverlay}>
@@ -595,219 +686,197 @@ export default function DriverDashboard({ navigation, route }) {
         </View>
       )}
 
-      <View style={styles.topBar}>
-        <View style={styles.topBarCard}>
-          <View>
-            <Text style={styles.welcome}>Hello, {user?.name}!</Text>
-            <Text style={styles.role}>Driver</Text>
-          </View>
-          {user?.isOwnerSelf && (
-            <TouchableOpacity style={styles.myFleetBtn} onPress={openFleetModal}>
-              <Text style={styles.myFleetBtnTxt}>🚑 My Fleet</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View style={styles.dutyCard}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.dutyLabel}>{onDuty ? '🟢 ON DUTY' : '⚪ OFF DUTY'}</Text>
-            {onDuty && activeAmbulance && (
-              <Text style={styles.dutyAmbulance} numberOfLines={1}>
-                🚑 {activeAmbulance.registrationNumber} · {activeAmbulance.serviceTypeLabel || activeAmbulance.serviceType}
-              </Text>
-            )}
-            {!onDuty && !checksLoading && failingChecks.length > 0 && (
-              <Text style={styles.dutyWarn} numberOfLines={2}>
-                Needs: {failingChecks.map(k => DUTY_CHECK_LABELS[k]).join(', ')}
-              </Text>
+      {!activeTrip && (
+        <View style={styles.topBar}>
+          <View style={styles.topBarCard}>
+            <View>
+              <Text style={styles.welcome}>Hello, {user?.name}!</Text>
+              <Text style={styles.role}>Driver</Text>
+            </View>
+            {user?.isOwnerSelf && (
+              <TouchableOpacity style={styles.myFleetBtn} onPress={openFleetModal}>
+                <Text style={styles.myFleetBtnTxt}>🚑 My Fleet</Text>
+              </TouchableOpacity>
             )}
           </View>
-          {dutyLoading || checksLoading ? (
-            <ActivityIndicator color="#10b981" />
-          ) : (
-            <Switch
-              value={onDuty}
-              onValueChange={handleToggleDuty}
-              disabled={!onDuty && !allChecksPassed}
-              trackColor={{ false: '#374151', true: '#10b981' }}
-              thumbColor="#fff"
-            />
-          )}
-        </View>
-      </View>
 
-      <TouchableOpacity style={[styles.recenterBtn, activeTrip && { bottom: 380 }]} onPress={recenter}>
+          <View style={styles.dutyCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.dutyLabel}>{onDuty ? '🟢 ON DUTY' : '⚪ OFF DUTY'}</Text>
+              {onDuty && activeAmbulance && (
+                <Text style={styles.dutyAmbulance} numberOfLines={1}>
+                  🚑 {activeAmbulance.registrationNumber} · {activeAmbulance.serviceTypeLabel || activeAmbulance.serviceType}
+                </Text>
+              )}
+              {!onDuty && !checksLoading && failingChecks.length > 0 && (
+                <Text style={styles.dutyWarn} numberOfLines={2}>
+                  Needs: {failingChecks.map(k => DUTY_CHECK_LABELS[k]).join(', ')}
+                </Text>
+              )}
+            </View>
+            {dutyLoading || checksLoading ? (
+              <ActivityIndicator color="#10b981" />
+            ) : (
+              <Switch
+                value={onDuty}
+                onValueChange={handleToggleDuty}
+                disabled={!onDuty && !allChecksPassed}
+                trackColor={{ false: '#374151', true: '#10b981' }}
+                thumbColor="#fff"
+              />
+            )}
+          </View>
+        </View>
+      )}
+
+      <TouchableOpacity style={[styles.recenterBtn, activeTrip && styles.recenterBtnActiveTrip]} onPress={recenter}>
         <Text style={styles.recenterIcon}>📍</Text>
       </TouchableOpacity>
 
       {activeTrip && (
-        <ScrollView style={styles.tripCard} contentContainerStyle={styles.tripCardContent}>
-          <View style={styles.tripHeader}>
-            <Text style={styles.tripHeaderTxt}>
-              {activeTrip.status === 'en_route' ? '🚑 Trip In Progress' : '✅ Trip Accepted'}
-            </Text>
-          </View>
+        <View style={styles.activeHeader}>
+          <Text style={styles.activeHeaderBadge}>
+            {formatAmbulanceBadge(activeTrip.selectedType)} • {headingToPickup ? 'PICK UP' : 'DROP'}
+          </Text>
+          <Text style={styles.activeHeaderName}>{activeTrip.patientName}</Text>
 
-          <Text style={styles.patientName}>{activeTrip.patientName}</Text>
           <TouchableOpacity
-            style={[styles.callCustomerBtn, callingCustomer && styles.callCustomerBtnDisabled]}
+            style={[styles.headerCallBtn, callingCustomer && styles.headerCallBtnDisabled]}
             onPress={callCustomer}
             disabled={callingCustomer}
           >
             {callingCustomer
-              ? <ActivityIndicator size="small" color="#10b981" />
-              : <Text style={styles.callCustomerBtnTxt}>📞 Call Customer</Text>}
+              ? <ActivityIndicator size="small" color="#14B8A6" />
+              : <Text style={styles.headerCallIcon}>📞</Text>}
           </TouchableOpacity>
-
-          <View style={styles.tripRow}>
-            <Text style={styles.tripLabel}>📍 Pickup</Text>
-            <Text style={styles.tripValue}>{activeTrip.pickup?.address || '—'}</Text>
-          </View>
-
-          {activeTrip.dropHospital?.name && (
-            <View style={styles.tripRow}>
-              <Text style={styles.tripLabel}>🏥 Drop</Text>
-              <Text style={styles.tripValue}>{activeTrip.dropHospital.name}</Text>
-            </View>
-          )}
-          {!activeTrip.dropHospital?.name && activeTrip.dropAddress && (
-            <View style={styles.tripRow}>
-              <Text style={styles.tripLabel}>🏁 Drop</Text>
-              <Text style={styles.tripValue}>{activeTrip.dropAddress}</Text>
-            </View>
-          )}
-
-          <View style={styles.tripRow}>
-            <Text style={styles.tripLabel}>💰 Fare</Text>
-            <Text style={styles.tripValue}>₹{activeTrip.baseFare || 0}</Text>
-          </View>
-
-          {navTarget && (
-            <TouchableOpacity
-              style={styles.navigateBtn}
-              onPress={() => openNavigation(navTarget.lat, navTarget.lng, navTarget.address)}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.navigateBtnTxt}>{navTarget.label}</Text>
-            </TouchableOpacity>
-          )}
-
-          {activeTrip.status === 'dispatched' && (
-            <TouchableOpacity
-              style={styles.startBtn}
-              onPress={startTrip}
-              disabled={startingTrip}
-            >
-              <Text style={styles.startBtnTxt}>
-                {startingTrip ? 'Starting...' : '▶ Trip Started'}
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          {activeTrip.status === 'en_route' && !activeTrip.arrivedAtPickupAt && (
-            <TouchableOpacity
-              style={styles.arriveBtn}
-              onPress={arrivePickup}
-              disabled={arrivingPickup}
-            >
-              <Text style={styles.arriveBtnTxt}>
-                {arrivingPickup ? 'Marking...' : '📍 Reached Pickup'}
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          {activeTrip.status === 'en_route' && activeTrip.arrivedAtPickupAt && !activeTrip.pickupVerified && (
-            <View style={styles.otpSection}>
-              <Text style={styles.otpLabel}>Patient hattira iruva 4-digit OTP haaki:</Text>
-              <View style={styles.otpRow}>
-                <TextInput
-                  style={styles.otpInput}
-                  value={otpInput}
-                  onChangeText={(t) => setOtpInput(t.replace(/[^0-9]/g, '').slice(0, 4))}
-                  placeholder="0000"
-                  placeholderTextColor="#4b5563"
-                  keyboardType="number-pad"
-                  maxLength={4}
-                />
-                <TouchableOpacity
-                  style={[styles.verifyBtn, otpInput.length !== 4 && styles.verifyBtnDisabled]}
-                  onPress={verifyOtp}
-                  disabled={verifyingOtp || otpInput.length !== 4}
-                >
-                  <Text style={styles.verifyBtnTxt}>
-                    {verifyingOtp ? '...' : 'Verify'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {activeTrip.status === 'en_route' && activeTrip.pickupVerified && (
-            <>
-              <View style={styles.inProgressBadge}>
-                <Text style={styles.inProgressTxt}>✅ Pickup Verified — En Route to hospital</Text>
-              </View>
-
-              {!activeTrip.reachedHospitalAt && (
-                <TouchableOpacity
-                  style={styles.reachedHospitalBtn}
-                  onPress={reachedHospital}
-                  disabled={markingReachedHospital}
-                >
-                  <Text style={styles.reachedHospitalBtnTxt}>
-                    {markingReachedHospital ? 'Marking...' : '🏥 Reached Hospital'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              {activeTrip.reachedHospitalAt && activeTrip.tripType === 'round_trip' && !activeTrip.returnStartedAt && (
-                <TouchableOpacity
-                  style={styles.startReturnBtn}
-                  onPress={startReturn}
-                  disabled={startingReturn}
-                >
-                  <Text style={styles.startReturnBtnTxt}>
-                    {startingReturn ? 'Starting...' : '↩ Starting Return'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity
-                style={styles.completeBtn}
-                onPress={completeTrip}
-                disabled={completingTrip}
-              >
-                <Text style={styles.completeBtnTxt}>
-                  {completingTrip ? 'Completing...' : '🏁 Trip Completed'}
-                </Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </ScrollView>
+        </View>
       )}
 
-      <View style={styles.bottomNav}>
-        <View style={styles.navItem}>
-          <Text style={styles.navIconActive}>🏠</Text>
-          <Text style={styles.navLabelActive}>Home</Text>
+      {activeTrip && (
+        <View style={styles.activeBottomSheet}>
+          <ScrollView contentContainerStyle={styles.activeBottomSheetContent} showsVerticalScrollIndicator={false}>
+            <View style={styles.locationRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.locationLabel}>{locationLabel}</Text>
+                <Text style={styles.locationAddress} numberOfLines={2}>{locationAddress}</Text>
+              </View>
+
+              {navTarget && (
+                <TouchableOpacity
+                  style={styles.navigateArrowBtn}
+                  onPress={() => openNavigation(navTarget.lat, navTarget.lng, navTarget.address)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.navigateArrowIcon}>➤</Text>
+                  <Text style={styles.navigateArrowLabel}>NAVIGATE</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.fareRow}>
+              <Text style={styles.fareLabel}>Fare</Text>
+              <Text style={styles.fareValue}>₹{activeTrip.baseFare || 0}</Text>
+            </View>
+
+            {activeTrip.status === 'dispatched' && (
+              <TouchableOpacity style={styles.primaryBtn} onPress={startTrip} disabled={startingTrip}>
+                {startingTrip
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={styles.primaryBtnTxt}>▶ Trip Started</Text>}
+              </TouchableOpacity>
+            )}
+
+            {activeTrip.status === 'en_route' && !activeTrip.arrivedAtPickupAt && (
+              <TouchableOpacity style={styles.primaryBtn} onPress={arrivePickup} disabled={arrivingPickup}>
+                {arrivingPickup
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={styles.primaryBtnTxt}>📍 Reached Pickup</Text>}
+              </TouchableOpacity>
+            )}
+
+            {activeTrip.status === 'en_route' && activeTrip.arrivedAtPickupAt && !activeTrip.pickupVerified && (
+              <View style={styles.otpSection}>
+                <Text style={styles.otpLabel}>Patient hattira iruva 4-digit OTP haaki:</Text>
+                <View style={styles.otpRow}>
+                  <TextInput
+                    style={styles.otpInput}
+                    value={otpInput}
+                    onChangeText={(t) => setOtpInput(t.replace(/[^0-9]/g, '').slice(0, 4))}
+                    placeholder="0000"
+                    placeholderTextColor="#9ca3af"
+                    keyboardType="number-pad"
+                    maxLength={4}
+                  />
+                  <TouchableOpacity
+                    style={[styles.verifyBtn, otpInput.length !== 4 && styles.verifyBtnDisabled]}
+                    onPress={verifyOtp}
+                    disabled={verifyingOtp || otpInput.length !== 4}
+                  >
+                    <Text style={styles.verifyBtnTxt}>
+                      {verifyingOtp ? '...' : 'Verify'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {activeTrip.status === 'en_route' && activeTrip.pickupVerified && (
+              <>
+                <View style={styles.inProgressBadge}>
+                  <Text style={styles.inProgressTxt}>✅ Pickup Verified — En Route to hospital</Text>
+                </View>
+
+                {!activeTrip.reachedHospitalAt && (
+                  <TouchableOpacity style={styles.primaryBtn} onPress={reachedHospital} disabled={markingReachedHospital}>
+                    {markingReachedHospital
+                      ? <ActivityIndicator color="#fff" />
+                      : <Text style={styles.primaryBtnTxt}>🏥 Reached Hospital</Text>}
+                  </TouchableOpacity>
+                )}
+
+                {activeTrip.reachedHospitalAt && activeTrip.tripType === 'round_trip' && !activeTrip.returnStartedAt && (
+                  <TouchableOpacity style={styles.primaryBtn} onPress={startReturn} disabled={startingReturn}>
+                    {startingReturn
+                      ? <ActivityIndicator color="#fff" />
+                      : <Text style={styles.primaryBtnTxt}>↩ Starting Return</Text>}
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity style={styles.primaryBtn} onPress={completeTrip} disabled={completingTrip}>
+                  {completingTrip
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={styles.primaryBtnTxt}>🏁 Trip Completed</Text>}
+                </TouchableOpacity>
+              </>
+            )}
+          </ScrollView>
         </View>
-        <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('Trips', 'Coming soon')}>
-          <Text style={styles.navIcon}>📋</Text>
-          <Text style={styles.navLabel}>Trips</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('Earnings', 'Coming soon')}>
-          <Text style={styles.navIcon}>💰</Text>
-          <Text style={styles.navLabel}>Earnings</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('Messages', 'Coming soon')}>
-          <Text style={styles.navIcon}>💬</Text>
-          <Text style={styles.navLabel}>Messages</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('DriverProfile')}>
-          <Text style={styles.navIcon}>👤</Text>
-          <Text style={styles.navLabel}>Profile</Text>
-        </TouchableOpacity>
-      </View>
+      )}
+
+      {!activeTrip && (
+        <View style={styles.bottomNav}>
+          <View style={styles.navItem}>
+            <Text style={styles.navIconActive}>🏠</Text>
+            <Text style={styles.navLabelActive}>Home</Text>
+          </View>
+          <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('Trips', 'Coming soon')}>
+            <Text style={styles.navIcon}>📋</Text>
+            <Text style={styles.navLabel}>Trips</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('Earnings', 'Coming soon')}>
+            <Text style={styles.navIcon}>💰</Text>
+            <Text style={styles.navLabel}>Earnings</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('Messages', 'Coming soon')}>
+            <Text style={styles.navIcon}>💬</Text>
+            <Text style={styles.navLabel}>Messages</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('DriverProfile')}>
+            <Text style={styles.navIcon}>👤</Text>
+            <Text style={styles.navLabel}>Profile</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <Modal
         visible={fleetModalOpen}
@@ -940,142 +1009,168 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   recenterIcon: { fontSize: 22 },
+  recenterBtnActiveTrip: { bottom: 380 },
 
-  tripCard: {
+  driverMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2.5,
+    borderColor: '#14B8A6',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+  },
+
+  // ── Active-trip header — white, centered, replaces the dark "Hello, X"
+  //    topBar while a trip is in progress. ──
+  activeHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 50,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  activeHeaderBadge: { color: '#14B8A6', fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
+  activeHeaderName: { color: '#0F172A', fontSize: 20, fontWeight: '800', marginTop: 4 },
+  headerCallBtn: {
+    position: 'absolute',
+    right: 16,
+    top: 50,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(20,184,166,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(20,184,166,0.35)',
+  },
+  headerCallBtnDisabled: { opacity: 0.6 },
+  headerCallIcon: { fontSize: 20 },
+
+  // ── Active-trip bottom sheet — clean white card over the big map ──
+  activeBottomSheet: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 96,
-    maxHeight: 400,
-    backgroundColor: '#111827',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    bottom: 0,
+    maxHeight: 360,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
   },
-  tripCardContent: { padding: 18 },
-  tripHeader: { marginBottom: 8 },
-  tripHeaderTxt: { color: '#3b82f6', fontSize: 13, fontWeight: '700' },
-  patientName: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-  callCustomerBtn: {
-    flexDirection: 'row',
-    alignSelf: 'flex-start',
-    alignItems: 'center',
-    marginTop: 6,
-    marginBottom: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: 'rgba(16,185,129,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(16,185,129,0.4)',
-  },
-  callCustomerBtnDisabled: { opacity: 0.6 },
-  callCustomerBtnTxt: { color: '#10b981', fontSize: 13, fontWeight: '700' },
+  activeBottomSheetContent: { padding: 20, paddingBottom: 28 },
 
-  tripRow: { marginBottom: 8 },
-  tripLabel: { color: '#6b7280', fontSize: 11, fontWeight: '600', marginBottom: 2 },
-  tripValue: { color: '#e5e7eb', fontSize: 14 },
+  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  locationLabel: { color: '#14B8A6', fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
+  locationAddress: { color: '#0F172A', fontSize: 16, fontWeight: '600', marginTop: 4, lineHeight: 21 },
 
-  // Deliberately bigger than the other trip-card buttons below — one-hand,
-  // in-a-hurry thumb target, and the driver's primary action for this leg.
-  navigateBtn: {
-    backgroundColor: '#2563eb',
+  // Big thumb-reachable NAVIGATE button, right side of the location row —
+  // reuses openNavigation(), same one-tap-no-chooser Google Maps behavior.
+  navigateArrowBtn: {
+    backgroundColor: '#14B8A6',
     borderRadius: 16,
-    paddingVertical: 20,
+    width: 76,
+    paddingVertical: 12,
     alignItems: 'center',
-    marginTop: 6,
-    marginBottom: 4,
-    shadowColor: '#2563eb',
-    shadowOffset: { width: 0, height: 4 },
+    justifyContent: 'center',
+    shadowColor: '#14B8A6',
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 5,
+  },
+  navigateArrowIcon: { color: '#fff', fontSize: 24, fontWeight: '900' },
+  navigateArrowLabel: { color: '#fff', fontSize: 10, fontWeight: '800', marginTop: 2, letterSpacing: 0.5 },
+
+  fareRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  fareLabel: { color: '#64748B', fontSize: 13, fontWeight: '600' },
+  fareValue: { color: '#0F172A', fontSize: 18, fontWeight: '800' },
+
+  // One consistent teal primary button for every trip-flow step (Start,
+  // Reached Pickup, Reached Hospital, Starting Return, Trip Completed) —
+  // same single-obvious-action look Ola uses, instead of the old design's
+  // different color per step. Logic/conditions behind each are unchanged.
+  primaryBtn: {
+    backgroundColor: '#14B8A6',
+    borderRadius: 14,
+    paddingVertical: 17,
+    alignItems: 'center',
+    marginTop: 14,
+    shadowColor: '#14B8A6',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
     shadowRadius: 8,
-    elevation: 6,
+    elevation: 5,
   },
-  navigateBtnTxt: { color: '#fff', fontSize: 19, fontWeight: '800', letterSpacing: 0.3 },
+  primaryBtnTxt: { color: '#fff', fontSize: 17, fontWeight: '800' },
 
-  startBtn: {
-    backgroundColor: '#10b981',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  startBtnTxt: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-
-  arriveBtn: {
-    backgroundColor: '#3b82f6',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  arriveBtnTxt: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-
-  otpSection: { marginTop: 12 },
-  otpLabel: { color: '#9ca3af', fontSize: 13, marginBottom: 8 },
+  otpSection: { marginTop: 14 },
+  otpLabel: { color: '#374151', fontSize: 14, marginBottom: 8, fontWeight: '600' },
   otpRow: { flexDirection: 'row', gap: 10 },
   otpInput: {
     flex: 1,
-    backgroundColor: '#1f2937',
+    backgroundColor: '#F1F5F9',
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    color: '#fff',
-    fontSize: 20,
+    color: '#0F172A',
+    fontSize: 22,
     fontWeight: 'bold',
     letterSpacing: 8,
     textAlign: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
   },
   verifyBtn: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#14B8A6',
     borderRadius: 12,
     paddingHorizontal: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  verifyBtnDisabled: { backgroundColor: '#374151' },
-  verifyBtnTxt: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
+  verifyBtnDisabled: { backgroundColor: '#CBD5E1' },
+  verifyBtnTxt: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 
   inProgressBadge: {
-    backgroundColor: 'rgba(16,185,129,0.15)',
+    backgroundColor: 'rgba(20,184,166,0.12)',
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 4,
     borderWidth: 1,
-    borderColor: 'rgba(16,185,129,0.3)',
+    borderColor: 'rgba(20,184,166,0.3)',
   },
-  inProgressTxt: { color: '#10b981', fontSize: 14, fontWeight: '700' },
-
-  reachedHospitalBtn: {
-    backgroundColor: '#8b5cf6',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  reachedHospitalBtnTxt: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-
-  startReturnBtn: {
-    backgroundColor: '#06b6d4',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  startReturnBtnTxt: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-
-  completeBtn: {
-    backgroundColor: '#f59e0b',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  completeBtnTxt: { color: '#0a0f1e', fontSize: 16, fontWeight: 'bold' },
+  inProgressTxt: { color: '#0D9488', fontSize: 14, fontWeight: '700' },
 
   bottomNav: {
     position: 'absolute',
