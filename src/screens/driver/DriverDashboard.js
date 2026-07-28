@@ -9,7 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { driverAuthApi, tripsApi, assignmentsApi, authApi, sosApi } from '../../api/client';
 import { getDeviceId, checkInternet } from '../../utils/device';
 import { getRouteInfo } from '../../utils/routeUtils';
-import { getCachedPushToken, refreshPushToken } from '../../utils/pushToken';
+import { getCachedPushToken, refreshPushToken, getPushStatus } from '../../utils/pushToken';
 
 // e.g. "bls_tempo" -> "BLS TEMPO", "dead-body" -> "DEAD BODY" — same
 // word-splitting TripAssignedScreen.js's formatAmbulanceType uses,
@@ -128,6 +128,9 @@ export default function DriverDashboard({ navigation, route }) {
   const onDutyRef = useRef(false); // mirrors onDuty for the GPS-loop effect below ([] deps, would otherwise see a stale value)
   const [activeAmbulance, setActiveAmbulance] = useState(null); // Phase 4 — which ambulance was picked at start-duty
   const [dutyLoading, setDutyLoading] = useState(false);
+  // TEMPORARY diagnostic — remove this state + its render below once push
+  // notifications are confirmed reaching drivers end-to-end.
+  const [pushStatusDisplay, setPushStatusDisplay] = useState(getPushStatus());
   const [checks, setChecks] = useState({});
   const [checksLoading, setChecksLoading] = useState(true);
 
@@ -316,9 +319,14 @@ export default function DriverDashboard({ navigation, route }) {
   // every 30 min since a token can change over time. Permission-denied /
   // no-network / Expo-service-down all no-op silently inside
   // refreshPushToken() itself — nothing here needs its own error handling.
+  // pushStatusDisplay mirrors getPushStatus() into state purely so the
+  // TEMPORARY diagnostic line below re-renders — remove alongside it once
+  // push is confirmed working end-to-end.
   useEffect(() => {
-    refreshPushToken();
-    const pushTokenInterval = setInterval(refreshPushToken, PUSH_TOKEN_REFRESH_INTERVAL_MS);
+    refreshPushToken().then(() => setPushStatusDisplay(getPushStatus()));
+    const pushTokenInterval = setInterval(() => {
+      refreshPushToken().then(() => setPushStatusDisplay(getPushStatus()));
+    }, PUSH_TOKEN_REFRESH_INTERVAL_MS);
     return () => clearInterval(pushTokenInterval);
   }, []);
 
@@ -861,6 +869,15 @@ export default function DriverDashboard({ navigation, route }) {
               />
             )}
           </View>
+
+          {/* TEMPORARY diagnostic — remove once push notifications are
+              confirmed reaching drivers end-to-end. Surfaces the real
+              reason getExpoPushTokenAsync() didn't produce a token, since
+              refreshPushToken() itself must stay silent to the location
+              loop (never throws, never blocks it). */}
+          <Text style={styles.pushDebugTxt}>
+            Push: {pushStatusDisplay.state === 'ok' ? `OK (${(getCachedPushToken() || '').slice(0, 12)}…)` : pushStatusDisplay.message}
+          </Text>
         </View>
       )}
 
@@ -1152,6 +1169,8 @@ const styles = StyleSheet.create({
   dutyLabel: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
   dutyAmbulance: { color: '#10b981', fontSize: 11.5, marginTop: 3, fontWeight: '600' },
   dutyWarn: { color: '#f59e0b', fontSize: 11, marginTop: 3, lineHeight: 15 },
+  // TEMPORARY diagnostic style — remove alongside the Text that uses it.
+  pushDebugTxt: { color: '#6b7280', fontSize: 10.5, textAlign: 'center', marginTop: 8 },
 
   recenterBtn: {
     position: 'absolute',
