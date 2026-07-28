@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { driverAuthApi, tripsApi, assignmentsApi, authApi, sosApi } from '../../api/client';
 import { getDeviceId, checkInternet } from '../../utils/device';
 import { getRouteInfo } from '../../utils/routeUtils';
+import { getCachedPushToken, refreshPushToken } from '../../utils/pushToken';
 
 // e.g. "bls_tempo" -> "BLS TEMPO", "dead-body" -> "DEAD BODY" — same
 // word-splitting TripAssignedScreen.js's formatAmbulanceType uses,
@@ -45,6 +46,11 @@ const BANGALORE = {
 
 const LOCATION_UPDATE_INTERVAL_MS = 10000;
 const TRIP_POLL_INTERVAL_MS = 15000;
+// A push token can change over time (Expo's own docs) — re-checked
+// periodically rather than fetched once and assumed permanent. Far less
+// frequent than the location loop; there's no need to hit Expo's token
+// endpoint every 10s.
+const PUSH_TOKEN_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 
 // GPS-proximity gate for "Reached Pickup"/"Reached Hospital" — a UI
 // convenience only (never used for fare/billing, which stays server-side
@@ -305,6 +311,17 @@ export default function DriverDashboard({ navigation, route }) {
     onDutyRef.current = onDuty;
   }, [onDuty]);
 
+  // Push token — best-effort, independent of the location loop below (never
+  // awaited by it, never blocks it). Fetched once on mount and re-checked
+  // every 30 min since a token can change over time. Permission-denied /
+  // no-network / Expo-service-down all no-op silently inside
+  // refreshPushToken() itself — nothing here needs its own error handling.
+  useEffect(() => {
+    refreshPushToken();
+    const pushTokenInterval = setInterval(refreshPushToken, PUSH_TOKEN_REFRESH_INTERVAL_MS);
+    return () => clearInterval(pushTokenInterval);
+  }, []);
+
   // ── Send location to backend every 10 seconds; also accumulate actual
   //    distance travelled while a trip is en_route (Step C) ──
   useEffect(() => {
@@ -344,7 +361,7 @@ export default function DriverDashboard({ navigation, route }) {
         const liveStatus = activeTripRef.current
           ? 'on_trip'
           : (onDutyRef.current ? 'available' : 'offline');
-        await driverAuthApi.updateLocation(latitude, longitude, liveStatus);
+        await driverAuthApi.updateLocation(latitude, longitude, liveStatus, getCachedPushToken());
       } catch (err) {
         // Silent — next interval tick will retry automatically.
       }

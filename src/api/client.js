@@ -66,7 +66,9 @@ export const salaryApi = {
 export const driverAuthApi = {
   loginWithPin: (employeeId, pin, deviceId) => api.post('/driver-auth/login', { employeeId, pin, deviceId }),
   changePin: (oldPin, newPin) => api.post('/driver-auth/change-pin', { oldPin, newPin }),
-  updateLocation: (lat, lng, status) => api.put('/driver-auth/location', { lat, lng, status }),
+  // pushToken is optional — backend only writes it if present (see
+  // authController.updateLocation), so omitting/nulling it here is safe.
+  updateLocation: (lat, lng, status, pushToken) => api.put('/driver-auth/location', { lat, lng, status, pushToken }),
   // Phase 3 — driver uploads their own onboarding documents (dl/aadhaar/photo).
   uploadDocument: (docType, fields) => api.put('/driver-auth/documents', { docType, ...fields }),
 };

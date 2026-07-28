@@ -5,6 +5,7 @@ import { ActivityIndicator, View, AppState, Platform } from 'react-native';
 import { useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 import * as Updates from 'expo-updates';
+import * as Notifications from 'expo-notifications';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import WelcomeScreen from './src/screens/WelcomeScreen';
@@ -32,6 +33,19 @@ import OwnerDashboardScreen from './src/screens/owner/OwnerDashboardScreen';
 import DriveAmbulanceScreen from './src/screens/owner/DriveAmbulanceScreen';
 import OwnerTripDetailScreen from './src/screens/owner/OwnerTripDetailScreen';
 import OwnerProfileScreen from './src/screens/owner/OwnerProfileScreen';
+
+// Without this, a push received while the app is open/foregrounded is
+// silently swallowed — expo-notifications shows nothing by default unless
+// a handler is registered. Module-level (not inside a component) and set
+// once, as early as possible, per Expo's own documented pattern.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 const Stack = createNativeStackNavigator();
 
