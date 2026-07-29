@@ -133,6 +133,9 @@ export default function DriverDashboard({ navigation, route }) {
   const onDutyRef = useRef(false); // mirrors onDuty for the GPS-loop effect below ([] deps, would otherwise see a stale value)
   const [activeAmbulance, setActiveAmbulance] = useState(null); // Phase 4 — which ambulance was picked at start-duty
   const [dutyLoading, setDutyLoading] = useState(false);
+  // TEMPORARY diagnostic — remove this state + its render below once the
+  // full-screen push path is confirmed working end-to-end.
+  const [fcmDebugText, setFcmDebugText] = useState('none yet');
   const [checks, setChecks] = useState({});
   const [checksLoading, setChecksLoading] = useState(true);
 
@@ -434,8 +437,26 @@ export default function DriverDashboard({ navigation, route }) {
       }
     };
 
+    // TEMPORARY diagnostic — remove once the full-screen push path is
+    // confirmed working end-to-end. Reads what index.js's FCM background
+    // handler last recorded there (its own AsyncStorage key, 'lastFcmDebug')
+    // — console logs are useless for that handler since it runs while the
+    // app is killed, with no debugger attached.
+    const refreshFcmDebug = async () => {
+      try {
+        const raw = await AsyncStorage.getItem('lastFcmDebug');
+        setFcmDebugText(raw || 'none yet');
+      } catch {
+        // Leave whatever was last shown.
+      }
+    };
+
     checkForTrip();
-    tripIntervalRef.current = setInterval(checkForTrip, TRIP_POLL_INTERVAL_MS);
+    refreshFcmDebug();
+    tripIntervalRef.current = setInterval(() => {
+      checkForTrip();
+      refreshFcmDebug();
+    }, TRIP_POLL_INTERVAL_MS);
 
     return () => {
       if (tripIntervalRef.current) clearInterval(tripIntervalRef.current);
@@ -878,6 +899,10 @@ export default function DriverDashboard({ navigation, route }) {
               />
             )}
           </View>
+
+          {/* TEMPORARY diagnostic — remove once the full-screen push path
+              is confirmed working end-to-end. */}
+          <Text style={styles.fcmDebugTxt} numberOfLines={3}>FCM: {fcmDebugText}</Text>
         </View>
       )}
 
@@ -1169,6 +1194,8 @@ const styles = StyleSheet.create({
   dutyLabel: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
   dutyAmbulance: { color: '#10b981', fontSize: 11.5, marginTop: 3, fontWeight: '600' },
   dutyWarn: { color: '#f59e0b', fontSize: 11, marginTop: 3, lineHeight: 15 },
+  // TEMPORARY diagnostic style — remove alongside the Text that uses it.
+  fcmDebugTxt: { color: '#6b7280', fontSize: 10.5, textAlign: 'center', marginTop: 8 },
 
   recenterBtn: {
     position: 'absolute',

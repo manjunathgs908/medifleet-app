@@ -1,8 +1,16 @@
 import { registerRootComponent } from 'expo';
 import messaging from '@react-native-firebase/messaging';
 import notifee, { AndroidImportance, AndroidCategory, AndroidFlags, AndroidVisibility } from 'react-native-notify-kit';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import App from './App';
+
+// TEMPORARY diagnostic key (remove once the full-screen path is confirmed
+// working end-to-end) — read by DriverDashboard.js. Console logs are
+// useless for this handler: it runs while the app is killed, with no
+// debugger attached, so this is the only way to see what actually happened
+// after the fact.
+const FCM_DEBUG_KEY = 'lastFcmDebug';
 
 // Same channelId App.js creates via expo-notifications' setNotificationChannelAsync —
 // Android channels are an OS-level concept keyed purely by this string, not
@@ -74,11 +82,33 @@ async function displayFullScreenTripCard(remoteMessage) {
 // here has no way to affect whether that Expo push arrives.
 try {
   messaging().setBackgroundMessageHandler(async (remoteMessage) => {
+    // Very first statement, own try/catch, before any notify-kit call —
+    // must record even if displayFullScreenTripCard throws below, since
+    // that's exactly the "handler fires but display fails" case that
+    // needs to be distinguished from "handler never fires at all".
+    try {
+      await AsyncStorage.setItem(FCM_DEBUG_KEY, JSON.stringify({
+        at: new Date().toISOString(),
+        dataKeys: Object.keys(remoteMessage?.data || {}),
+      }));
+    } catch (storageErr) {
+      // Nothing more we can do if AsyncStorage itself is unavailable.
+    }
+
     console.log('[fcm] Background message received:', JSON.stringify(remoteMessage));
     try {
       await displayFullScreenTripCard(remoteMessage);
     } catch (err) {
       console.log('[fcm] Could not display full-screen trip card:', err?.message);
+      // Append onto the same key (shallow-merge) so one read shows both
+      // "did the handler fire" and, if display failed, why.
+      try {
+        await AsyncStorage.mergeItem(FCM_DEBUG_KEY, JSON.stringify({
+          displayError: err?.message || String(err),
+        }));
+      } catch (storageErr) {
+        // Nothing more we can do if AsyncStorage itself is unavailable.
+      }
     }
   });
 } catch (err) {
