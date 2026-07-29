@@ -438,12 +438,14 @@ export default function DriverDashboard({ navigation, route }) {
     };
 
     // TEMPORARY diagnostic — remove once the full-screen push path is
-    // confirmed working end-to-end. Reads what index.js's FCM background
-    // handler last recorded there (its own AsyncStorage key, 'lastFcmDebug')
-    // — console logs are useless for that handler since it runs while the
-    // app is killed, with no debugger attached. Stored as a JSON array, one
-    // entry per message the handler was invoked for (see index.js) — shown
-    // newest-first so multiple messages from one dispatch are all visible.
+    // confirmed working end-to-end. Reads what index.js's background
+    // notification task (expo-task-manager, via expo-notifications'
+    // registerTaskAsync) last recorded there (its own AsyncStorage key,
+    // 'lastFcmDebug') — console logs are useless for that task since it
+    // runs while the app is killed, with no debugger attached. Stored as a
+    // JSON array, one entry per message the task was invoked for (see
+    // index.js) — shown newest-first so multiple messages from one
+    // dispatch are all visible.
     const refreshFcmDebug = async () => {
       try {
         const raw = await AsyncStorage.getItem('lastFcmDebug');

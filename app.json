@@ -87,6 +87,7 @@
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
       "react-native-notify-kit",
+      "expo-task-manager",
       "./plugins/withFullScreenIntent"
     ],
     "extra": {

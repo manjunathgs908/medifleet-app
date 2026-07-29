@@ -19,6 +19,7 @@
     "expo-media-library": "~56.0.9",
     "expo-notifications": "~56.0.20",
     "expo-status-bar": "~56.0.4",
+    "expo-task-manager": "~56.0.23",
     "expo-updates": "~56.0.19",
     "react": "19.2.3",
     "react-dom": "19.2.3",
