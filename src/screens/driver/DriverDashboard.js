@@ -136,6 +136,7 @@ export default function DriverDashboard({ navigation, route }) {
   // TEMPORARY diagnostic — remove this state + its render below once the
   // full-screen push path is confirmed working end-to-end.
   const [fcmDebugText, setFcmDebugText] = useState('none yet');
+  const [taskSetupDebugText, setTaskSetupDebugText] = useState('none yet');
   const [checks, setChecks] = useState({});
   const [checksLoading, setChecksLoading] = useState(true);
 
@@ -466,11 +467,36 @@ export default function DriverDashboard({ navigation, route }) {
       }
     };
 
+    // TEMPORARY diagnostic — remove alongside refreshFcmDebug above. Reads
+    // index.js's 'taskSetupDebug' key: the outcome of defineTask/
+    // registerTaskAsync/isTaskRegisteredAsync/isAvailableAsync from the
+    // most recent app start (overwritten each start, not appended — this
+    // is one setup sequence's outcome, not a stream of events).
+    const refreshTaskSetupDebug = async () => {
+      try {
+        const raw = await AsyncStorage.getItem('taskSetupDebug');
+        if (!raw) {
+          setTaskSetupDebugText('none yet');
+          return;
+        }
+        const d = JSON.parse(raw);
+        setTaskSetupDebugText(
+          `avail=${d.isAvailable} defineErr=${d.defineTaskError || 'none'} ` +
+          `register=${d.registerTaskAsyncResult || 'none'}${d.registerTaskAsyncError ? ` (${d.registerTaskAsyncError})` : ''} ` +
+          `isRegistered=${d.isTaskRegistered}`
+        );
+      } catch {
+        // Leave whatever was last shown.
+      }
+    };
+
     checkForTrip();
     refreshFcmDebug();
+    refreshTaskSetupDebug();
     tripIntervalRef.current = setInterval(() => {
       checkForTrip();
       refreshFcmDebug();
+      refreshTaskSetupDebug();
     }, TRIP_POLL_INTERVAL_MS);
 
     return () => {
@@ -918,6 +944,7 @@ export default function DriverDashboard({ navigation, route }) {
           {/* TEMPORARY diagnostic — remove once the full-screen push path
               is confirmed working end-to-end. */}
           <Text style={styles.fcmDebugTxt} numberOfLines={6}>FCM: {fcmDebugText}</Text>
+          <Text style={styles.fcmDebugTxt} numberOfLines={4}>Task setup: {taskSetupDebugText}</Text>
         </View>
       )}
 
