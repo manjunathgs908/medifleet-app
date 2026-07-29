@@ -47,6 +47,30 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// Android notification channel — without this, Android delivers pushes on
+// the default/low-importance channel, which Doze can defer until the
+// screen turns back on (the exact "nothing arrives while asleep, all at
+// once on wake" symptom this fixes). MAX importance + sound + vibration is
+// what makes a heads-up notification actually interrupt whatever the
+// driver is doing. channelId ('trip-alerts') must match what the backend
+// sends in utils/pushService.js's sendPush — a mismatch silently falls
+// back to the default channel even with priority:'high' set server-side.
+// iOS has no channel concept; setNotificationChannelAsync resolves to a
+// documented no-op there, so the Platform guard is for clarity, not safety.
+if (Platform.OS === 'android') {
+  Notifications.setNotificationChannelAsync('trip-alerts', {
+    name: 'Trip Alerts',
+    importance: Notifications.AndroidImportance.MAX,
+    sound: 'default',
+    vibrationPattern: [0, 250, 250, 250],
+    enableVibrate: true,
+    enableLights: true,
+    lightColor: '#e8192c',
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    showBadge: true,
+  });
+}
+
 const Stack = createNativeStackNavigator();
 
 function AppNavigator() {
