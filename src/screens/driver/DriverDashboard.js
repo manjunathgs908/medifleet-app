@@ -133,10 +133,6 @@ export default function DriverDashboard({ navigation, route }) {
   const onDutyRef = useRef(false); // mirrors onDuty for the GPS-loop effect below ([] deps, would otherwise see a stale value)
   const [activeAmbulance, setActiveAmbulance] = useState(null); // Phase 4 — which ambulance was picked at start-duty
   const [dutyLoading, setDutyLoading] = useState(false);
-  // TEMPORARY diagnostic — remove this state + its render below once the
-  // full-screen push path is confirmed working end-to-end.
-  const [fcmDebugText, setFcmDebugText] = useState('none yet');
-  const [taskSetupDebugText, setTaskSetupDebugText] = useState('none yet');
   const [checks, setChecks] = useState({});
   const [checksLoading, setChecksLoading] = useState(true);
 
@@ -438,66 +434,8 @@ export default function DriverDashboard({ navigation, route }) {
       }
     };
 
-    // TEMPORARY diagnostic — remove once the full-screen push path is
-    // confirmed working end-to-end. Reads what index.js's background
-    // notification task (expo-task-manager, via expo-notifications'
-    // registerTaskAsync) last recorded there (its own AsyncStorage key,
-    // 'lastFcmDebug') — console logs are useless for that task since it
-    // runs while the app is killed, with no debugger attached. Stored as a
-    // JSON array, one entry per message the task was invoked for (see
-    // index.js) — shown newest-first so multiple messages from one
-    // dispatch are all visible.
-    const refreshFcmDebug = async () => {
-      try {
-        const raw = await AsyncStorage.getItem('lastFcmDebug');
-        const list = raw ? JSON.parse(raw) : [];
-        if (!list.length) {
-          setFcmDebugText('none yet');
-          return;
-        }
-        const summary = list.slice().reverse().map((e) => {
-          const time = e.at ? e.at.slice(11, 19) : '?';
-          const keys = (e.dataKeys || []).join(',') || '(none)';
-          const err = e.displayError ? ` ERR:${e.displayError}` : '';
-          return `[${time}] ${keys}${err}`;
-        }).join(' | ');
-        setFcmDebugText(`${list.length}x — ${summary}`);
-      } catch {
-        // Leave whatever was last shown.
-      }
-    };
-
-    // TEMPORARY diagnostic — remove alongside refreshFcmDebug above. Reads
-    // index.js's 'taskSetupDebug' key: the outcome of defineTask/
-    // registerTaskAsync/isTaskRegisteredAsync/isAvailableAsync from the
-    // most recent app start (overwritten each start, not appended — this
-    // is one setup sequence's outcome, not a stream of events).
-    const refreshTaskSetupDebug = async () => {
-      try {
-        const raw = await AsyncStorage.getItem('taskSetupDebug');
-        if (!raw) {
-          setTaskSetupDebugText('none yet');
-          return;
-        }
-        const d = JSON.parse(raw);
-        setTaskSetupDebugText(
-          `avail=${d.isAvailable} defineErr=${d.defineTaskError || 'none'} ` +
-          `register=${d.registerTaskAsyncResult || 'none'}${d.registerTaskAsyncError ? ` (${d.registerTaskAsyncError})` : ''} ` +
-          `isRegistered=${d.isTaskRegistered}`
-        );
-      } catch {
-        // Leave whatever was last shown.
-      }
-    };
-
     checkForTrip();
-    refreshFcmDebug();
-    refreshTaskSetupDebug();
-    tripIntervalRef.current = setInterval(() => {
-      checkForTrip();
-      refreshFcmDebug();
-      refreshTaskSetupDebug();
-    }, TRIP_POLL_INTERVAL_MS);
+    tripIntervalRef.current = setInterval(checkForTrip, TRIP_POLL_INTERVAL_MS);
 
     return () => {
       if (tripIntervalRef.current) clearInterval(tripIntervalRef.current);
@@ -940,11 +878,6 @@ export default function DriverDashboard({ navigation, route }) {
               />
             )}
           </View>
-
-          {/* TEMPORARY diagnostic — remove once the full-screen push path
-              is confirmed working end-to-end. */}
-          <Text style={styles.fcmDebugTxt} numberOfLines={6}>FCM: {fcmDebugText}</Text>
-          <Text style={styles.fcmDebugTxt} numberOfLines={4}>Task setup: {taskSetupDebugText}</Text>
         </View>
       )}
 
@@ -1236,8 +1169,6 @@ const styles = StyleSheet.create({
   dutyLabel: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
   dutyAmbulance: { color: '#10b981', fontSize: 11.5, marginTop: 3, fontWeight: '600' },
   dutyWarn: { color: '#f59e0b', fontSize: 11, marginTop: 3, lineHeight: 15 },
-  // TEMPORARY diagnostic style — remove alongside the Text that uses it.
-  fcmDebugTxt: { color: '#6b7280', fontSize: 10.5, textAlign: 'center', marginTop: 8 },
 
   recenterBtn: {
     position: 'absolute',
