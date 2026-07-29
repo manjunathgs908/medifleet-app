@@ -9,8 +9,37 @@ import App from './App';
 // working end-to-end) — read by DriverDashboard.js. Console logs are
 // useless for this handler: it runs while the app is killed, with no
 // debugger attached, so this is the only way to see what actually happened
-// after the fact.
+// after the fact. Stores a JSON ARRAY, one short entry per message the
+// handler was invoked for — a single overwritten value couldn't tell us
+// whether the handler fired once or twice for one dispatch (Expo's push
+// and our own raw FCM send are two separate messages); appending can.
 const FCM_DEBUG_KEY = 'lastFcmDebug';
+const FCM_DEBUG_MAX_ENTRIES = 10;
+
+async function appendFcmDebugEntry(entry) {
+  try {
+    const raw = await AsyncStorage.getItem(FCM_DEBUG_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    list.push(entry);
+    while (list.length > FCM_DEBUG_MAX_ENTRIES) list.shift();
+    await AsyncStorage.setItem(FCM_DEBUG_KEY, JSON.stringify(list));
+    return list.length - 1; // index of the entry just added
+  } catch (storageErr) {
+    return -1;
+  }
+}
+
+async function setFcmDebugEntryError(index, message) {
+  if (index < 0) return;
+  try {
+    const raw = await AsyncStorage.getItem(FCM_DEBUG_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    if (list[index]) list[index].displayError = message;
+    await AsyncStorage.setItem(FCM_DEBUG_KEY, JSON.stringify(list));
+  } catch (storageErr) {
+    // Nothing more we can do if AsyncStorage itself is unavailable.
+  }
+}
 
 // Same channelId App.js creates via expo-notifications' setNotificationChannelAsync —
 // Android channels are an OS-level concept keyed purely by this string, not
@@ -82,33 +111,22 @@ async function displayFullScreenTripCard(remoteMessage) {
 // here has no way to affect whether that Expo push arrives.
 try {
   messaging().setBackgroundMessageHandler(async (remoteMessage) => {
-    // Very first statement, own try/catch, before any notify-kit call —
-    // must record even if displayFullScreenTripCard throws below, since
-    // that's exactly the "handler fires but display fails" case that
-    // needs to be distinguished from "handler never fires at all".
-    try {
-      await AsyncStorage.setItem(FCM_DEBUG_KEY, JSON.stringify({
-        at: new Date().toISOString(),
-        dataKeys: Object.keys(remoteMessage?.data || {}),
-      }));
-    } catch (storageErr) {
-      // Nothing more we can do if AsyncStorage itself is unavailable.
-    }
+    // Very first statement, before any notify-kit call — must record even
+    // if displayFullScreenTripCard throws below, since that's exactly the
+    // "handler fires but display fails" case that needs to be
+    // distinguished from "handler never fires at all". appendFcmDebugEntry
+    // has its own try/catch internally.
+    const entryIndex = await appendFcmDebugEntry({
+      at: new Date().toISOString(),
+      dataKeys: Object.keys(remoteMessage?.data || {}),
+    });
 
     console.log('[fcm] Background message received:', JSON.stringify(remoteMessage));
     try {
       await displayFullScreenTripCard(remoteMessage);
     } catch (err) {
       console.log('[fcm] Could not display full-screen trip card:', err?.message);
-      // Append onto the same key (shallow-merge) so one read shows both
-      // "did the handler fire" and, if display failed, why.
-      try {
-        await AsyncStorage.mergeItem(FCM_DEBUG_KEY, JSON.stringify({
-          displayError: err?.message || String(err),
-        }));
-      } catch (storageErr) {
-        // Nothing more we can do if AsyncStorage itself is unavailable.
-      }
+      await setFcmDebugEntryError(entryIndex, err?.message || String(err));
     }
   });
 } catch (err) {

@@ -441,11 +441,24 @@ export default function DriverDashboard({ navigation, route }) {
     // confirmed working end-to-end. Reads what index.js's FCM background
     // handler last recorded there (its own AsyncStorage key, 'lastFcmDebug')
     // — console logs are useless for that handler since it runs while the
-    // app is killed, with no debugger attached.
+    // app is killed, with no debugger attached. Stored as a JSON array, one
+    // entry per message the handler was invoked for (see index.js) — shown
+    // newest-first so multiple messages from one dispatch are all visible.
     const refreshFcmDebug = async () => {
       try {
         const raw = await AsyncStorage.getItem('lastFcmDebug');
-        setFcmDebugText(raw || 'none yet');
+        const list = raw ? JSON.parse(raw) : [];
+        if (!list.length) {
+          setFcmDebugText('none yet');
+          return;
+        }
+        const summary = list.slice().reverse().map((e) => {
+          const time = e.at ? e.at.slice(11, 19) : '?';
+          const keys = (e.dataKeys || []).join(',') || '(none)';
+          const err = e.displayError ? ` ERR:${e.displayError}` : '';
+          return `[${time}] ${keys}${err}`;
+        }).join(' | ');
+        setFcmDebugText(`${list.length}x — ${summary}`);
       } catch {
         // Leave whatever was last shown.
       }
@@ -902,7 +915,7 @@ export default function DriverDashboard({ navigation, route }) {
 
           {/* TEMPORARY diagnostic — remove once the full-screen push path
               is confirmed working end-to-end. */}
-          <Text style={styles.fcmDebugTxt} numberOfLines={3}>FCM: {fcmDebugText}</Text>
+          <Text style={styles.fcmDebugTxt} numberOfLines={6}>FCM: {fcmDebugText}</Text>
         </View>
       )}
 
