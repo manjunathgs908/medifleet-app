@@ -22,20 +22,6 @@ const CACHE_KEY = 'driverPushToken';
 
 let cachedToken = null;
 
-// TEMPORARY diagnostics (remove once push is confirmed working end-to-end)
-// — the original silent catch below made it impossible to tell WHY a
-// driver never got a token: permission denied vs. getExpoPushTokenAsync()
-// actually throwing (e.g. missing FCM setup) vs. never having run at all.
-// getPushStatus() exposes the last outcome for a visible UI line; it is
-// purely informational and never affects cachedToken/refreshPushToken's
-// own behavior (still never throws back to callers, still never blocks
-// the location loop).
-let pushStatus = { state: 'checking', message: 'Not checked yet' };
-
-export function getPushStatus() {
-  return pushStatus;
-}
-
 // Synchronous — whatever's in memory right now. null until the first
 // refreshPushToken() call resolves; callers must tolerate that (the
 // driver-location loop already retries every 10s regardless, so a token
@@ -61,26 +47,15 @@ export async function refreshPushToken() {
     }
 
     const { status } = await Notifications.getPermissionsAsync();
-    if (status !== 'granted') {
-      pushStatus = { state: 'permission_denied', message: 'Permission denied' };
-      return cachedToken;
-    }
+    if (status !== 'granted') return cachedToken;
 
     const { data } = await Notifications.getExpoPushTokenAsync({ projectId: EAS_PROJECT_ID });
-    if (data) {
-      if (data !== cachedToken) {
-        cachedToken = data;
-        AsyncStorage.setItem(CACHE_KEY, data).catch(() => {});
-      }
-      pushStatus = { state: 'ok', message: 'OK' };
-    } else {
-      pushStatus = { state: 'error', message: 'No token returned' };
+    if (data && data !== cachedToken) {
+      cachedToken = data;
+      AsyncStorage.setItem(CACHE_KEY, data).catch(() => {});
     }
-  } catch (err) {
-    // Still never re-thrown — the location loop must never be blocked by
-    // this — but now recorded instead of discarded, since that's exactly
-    // what was hiding the real failure reason.
-    pushStatus = { state: 'error', message: err?.message || 'Unknown error' };
+  } catch {
+    // Silent — see comment above.
   }
   return cachedToken;
 }

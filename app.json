@@ -83,7 +83,10 @@
           "photosPermission": "Allow MediFleet to access your photos to attach ambulance documents",
           "cameraPermission": "Allow MediFleet to use the camera for ambulance and document photos"
         }
-      ]
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
+      "./plugins/withFullScreenIntent"
     ],
     "extra": {
       "eas": {

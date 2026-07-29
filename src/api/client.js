@@ -68,7 +68,9 @@ export const driverAuthApi = {
   changePin: (oldPin, newPin) => api.post('/driver-auth/change-pin', { oldPin, newPin }),
   // pushToken is optional — backend only writes it if present (see
   // authController.updateLocation), so omitting/nulling it here is safe.
-  updateLocation: (lat, lng, status, pushToken) => api.put('/driver-auth/location', { lat, lng, status, pushToken }),
+  // fcmToken is a separate, additive field (Phase 1 of the full-screen
+  // incoming-trip card) — raw FCM device token, not the Expo push token.
+  updateLocation: (lat, lng, status, pushToken, fcmToken) => api.put('/driver-auth/location', { lat, lng, status, pushToken, fcmToken }),
   // Phase 3 — driver uploads their own onboarding documents (dl/aadhaar/photo).
   uploadDocument: (docType, fields) => api.put('/driver-auth/documents', { docType, ...fields }),
 };

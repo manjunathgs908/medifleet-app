@@ -9,7 +9,8 @@ import { useAuth } from '../../context/AuthContext';
 import { driverAuthApi, tripsApi, assignmentsApi, authApi, sosApi } from '../../api/client';
 import { getDeviceId, checkInternet } from '../../utils/device';
 import { getRouteInfo } from '../../utils/routeUtils';
-import { getCachedPushToken, refreshPushToken, getPushStatus } from '../../utils/pushToken';
+import { getCachedPushToken, refreshPushToken } from '../../utils/pushToken';
+import { getCachedFcmToken, refreshFcmToken } from '../../utils/fcmToken';
 
 // e.g. "bls_tempo" -> "BLS TEMPO", "dead-body" -> "DEAD BODY" — same
 // word-splitting TripAssignedScreen.js's formatAmbulanceType uses,
@@ -51,6 +52,10 @@ const TRIP_POLL_INTERVAL_MS = 15000;
 // frequent than the location loop; there's no need to hit Expo's token
 // endpoint every 10s.
 const PUSH_TOKEN_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+// Same cadence as the Expo push token, same reasoning — FCM tokens can also
+// change over time. Separate constant so the two concerns stay independently
+// tunable even though the value happens to match today.
+const FCM_TOKEN_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
 
 // GPS-proximity gate for "Reached Pickup"/"Reached Hospital" — a UI
 // convenience only (never used for fare/billing, which stays server-side
@@ -128,9 +133,6 @@ export default function DriverDashboard({ navigation, route }) {
   const onDutyRef = useRef(false); // mirrors onDuty for the GPS-loop effect below ([] deps, would otherwise see a stale value)
   const [activeAmbulance, setActiveAmbulance] = useState(null); // Phase 4 — which ambulance was picked at start-duty
   const [dutyLoading, setDutyLoading] = useState(false);
-  // TEMPORARY diagnostic — remove this state + its render below once push
-  // notifications are confirmed reaching drivers end-to-end.
-  const [pushStatusDisplay, setPushStatusDisplay] = useState(getPushStatus());
   const [checks, setChecks] = useState({});
   const [checksLoading, setChecksLoading] = useState(true);
 
@@ -319,15 +321,22 @@ export default function DriverDashboard({ navigation, route }) {
   // every 30 min since a token can change over time. Permission-denied /
   // no-network / Expo-service-down all no-op silently inside
   // refreshPushToken() itself — nothing here needs its own error handling.
-  // pushStatusDisplay mirrors getPushStatus() into state purely so the
-  // TEMPORARY diagnostic line below re-renders — remove alongside it once
-  // push is confirmed working end-to-end.
   useEffect(() => {
-    refreshPushToken().then(() => setPushStatusDisplay(getPushStatus()));
-    const pushTokenInterval = setInterval(() => {
-      refreshPushToken().then(() => setPushStatusDisplay(getPushStatus()));
-    }, PUSH_TOKEN_REFRESH_INTERVAL_MS);
+    refreshPushToken();
+    const pushTokenInterval = setInterval(refreshPushToken, PUSH_TOKEN_REFRESH_INTERVAL_MS);
     return () => clearInterval(pushTokenInterval);
+  }, []);
+
+  // Raw FCM token — Phase 1 of the full-screen incoming-trip card (see
+  // plugins/withFullScreenIntent.js). Deliberately a separate effect from
+  // the Expo push token above: independent cache, independent failure mode
+  // (the native Firebase module doesn't exist in the currently-shipped APK
+  // yet — this silently no-ops there, same as it would on any other
+  // refreshFcmToken() failure, and never touches the Expo push token path).
+  useEffect(() => {
+    refreshFcmToken();
+    const fcmTokenInterval = setInterval(refreshFcmToken, FCM_TOKEN_REFRESH_INTERVAL_MS);
+    return () => clearInterval(fcmTokenInterval);
   }, []);
 
   // ── Send location to backend every 10 seconds; also accumulate actual
@@ -369,7 +378,7 @@ export default function DriverDashboard({ navigation, route }) {
         const liveStatus = activeTripRef.current
           ? 'on_trip'
           : (onDutyRef.current ? 'available' : 'offline');
-        await driverAuthApi.updateLocation(latitude, longitude, liveStatus, getCachedPushToken());
+        await driverAuthApi.updateLocation(latitude, longitude, liveStatus, getCachedPushToken(), getCachedFcmToken());
       } catch (err) {
         // Silent — next interval tick will retry automatically.
       }
@@ -869,15 +878,6 @@ export default function DriverDashboard({ navigation, route }) {
               />
             )}
           </View>
-
-          {/* TEMPORARY diagnostic — remove once push notifications are
-              confirmed reaching drivers end-to-end. Surfaces the real
-              reason getExpoPushTokenAsync() didn't produce a token, since
-              refreshPushToken() itself must stay silent to the location
-              loop (never throws, never blocks it). */}
-          <Text style={styles.pushDebugTxt}>
-            Push: {pushStatusDisplay.state === 'ok' ? `OK (${(getCachedPushToken() || '').slice(0, 12)}…)` : pushStatusDisplay.message}
-          </Text>
         </View>
       )}
 
@@ -1169,8 +1169,6 @@ const styles = StyleSheet.create({
   dutyLabel: { color: '#fff', fontSize: 14, fontWeight: 'bold' },
   dutyAmbulance: { color: '#10b981', fontSize: 11.5, marginTop: 3, fontWeight: '600' },
   dutyWarn: { color: '#f59e0b', fontSize: 11, marginTop: 3, lineHeight: 15 },
-  // TEMPORARY diagnostic style — remove alongside the Text that uses it.
-  pushDebugTxt: { color: '#6b7280', fontSize: 10.5, textAlign: 'center', marginTop: 8 },
 
   recenterBtn: {
     position: 'absolute',
