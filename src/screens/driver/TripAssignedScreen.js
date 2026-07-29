@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, ScrollView } from 'react-native';
-import { tripsApi } from '../../api/client';
+import { acceptTrip, rejectTrip } from '../../utils/tripResponse';
 
 // selectedType is a raw Pricing serviceType id (e.g. "bls", "dead-body") —
 // no label table exists anywhere in the app/backend, so this just makes
@@ -29,24 +29,7 @@ export default function TripAssignedScreen({ navigation, route }) {
   async function handleAccept() {
     setSubmitting(true);
     try {
-      const { data } = await tripsApi.confirm(trip._id);
-      let confirmedTrip = data.trip;
-
-      // Accepting a trip now IS starting it — there's no separate "Trip
-      // Started" tap anymore, so chain straight into the en_route
-      // transition (this is what fires the customer's "Ambulance On The
-      // Way" push and sets enRouteAt server-side). Best-effort: if this
-      // one-shot call doesn't land (network blip), DriverDashboard's own
-      // poll loop retries it automatically every 15s until it does, so the
-      // driver is never stuck on a confirmed-but-still-'dispatched' trip
-      // with no button to advance it.
-      try {
-        const { data: startedData } = await tripsApi.updateStatus(trip._id, 'en_route');
-        confirmedTrip = startedData.trip;
-      } catch (startErr) {
-        // Silent — DriverDashboard's poll-loop self-heal retries this.
-      }
-
+      const confirmedTrip = await acceptTrip(trip._id);
       navigation.navigate('DriverDashboard', { confirmedTrip });
     } catch (e) {
       const msg = e.response?.data?.message || 'Could not confirm the trip. Please try again.';
@@ -58,7 +41,7 @@ export default function TripAssignedScreen({ navigation, route }) {
   async function handleReject() {
     setSubmitting(true);
     try {
-      await tripsApi.decline(trip._id);
+      await rejectTrip(trip._id);
     } catch (e) {
       Alert.alert('Error', e.response?.data?.message || 'Could not decline the trip, but you can still go back.');
     } finally {

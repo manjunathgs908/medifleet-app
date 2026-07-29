@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ActivityIndicator, View, AppState, Platform } from 'react-native';
 import { useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 import * as Updates from 'expo-updates';
 import * as Notifications from 'expo-notifications';
+import notifee, { EventType } from 'react-native-notify-kit';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import WelcomeScreen from './src/screens/WelcomeScreen';
@@ -13,6 +14,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import DeviceVerificationScreen from './src/screens/DeviceVerificationScreen';
 import PermissionsScreen from './src/screens/PermissionsScreen';
 import BatteryOptimizationScreen from './src/screens/BatteryOptimizationScreen';
+import FullScreenIntentPermissionScreen from './src/screens/FullScreenIntentPermissionScreen';
 import TermsScreen from './src/screens/TermsScreen';
 import DriverProfileCheckScreen from './src/screens/DriverProfileCheckScreen';
 import DriverOnboardingScreen from './src/screens/DriverOnboardingScreen';
@@ -21,6 +23,7 @@ import DriverDashboard from './src/screens/driver/DriverDashboard';
 import DriverProfileScreen from './src/screens/driver/DriverProfileScreen';
 import BookingTripScreen from './src/screens/driver/BookingTripScreen';
 import TripAssignedScreen from './src/screens/driver/TripAssignedScreen';
+import IncomingTripScreen from './src/screens/driver/IncomingTripScreen';
 import AmbulancePickerScreen from './src/screens/driver/AmbulancePickerScreen';
 import UnbindDeviceScreen from './src/screens/owner/UnbindDeviceScreen';
 import OwnerHomeScreen from './src/screens/owner/OwnerHomeScreen';
@@ -73,18 +76,25 @@ if (Platform.OS === 'android') {
 
 const Stack = createNativeStackNavigator();
 
+// Lets index.js's notification-open handling (see App() below) navigate
+// from outside any screen component — the standard React Navigation
+// pattern for reacting to events that aren't a JS button press.
+export const navigationRef = createNavigationContainerRef();
+
 function AppNavigator() {
   const { user, loading } = useAuth();
 
   // Full driver-onboarding flow (extends the Phase 4 permissions gate):
   // Welcome → Login(existing) → DeviceVerification → Permissions →
-  // BatteryOptimization(Android) → Terms → DriverProfileCheck → Dashboard.
-  // Each step is a one-time escape hatch for this app session,
-  // same pattern as the original permissionsConfirmed flag below — once a
-  // screen calls onDone, that step is skipped for the rest of the session.
+  // BatteryOptimization(Android) → FullScreenIntentPermission(Android) →
+  // Terms → DriverProfileCheck → Dashboard. Each step is a one-time escape
+  // hatch for this app session, same pattern as the original
+  // permissionsConfirmed flag below — once a screen calls onDone, that
+  // step is skipped for the rest of the session.
   const [welcomeDone, setWelcomeDone] = useState(false);
   const [deviceVerified, setDeviceVerified] = useState(false);
   const [batteryOptDone, setBatteryOptDone] = useState(Platform.OS !== 'android');
+  const [fullScreenIntentDone, setFullScreenIntentDone] = useState(Platform.OS !== 'android');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [profileConfirmed, setProfileConfirmed] = useState(false);
 
@@ -174,6 +184,16 @@ function AppNavigator() {
       );
     }
 
+    if (!fullScreenIntentDone) {
+      return (
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="FullScreenIntentPermission">
+            {() => <FullScreenIntentPermissionScreen onDone={() => setFullScreenIntentDone(true)} />}
+          </Stack.Screen>
+        </Stack.Navigator>
+      );
+    }
+
     if (!termsAccepted) {
       return (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -203,6 +223,11 @@ function AppNavigator() {
         <Stack.Screen
           name="TripAssigned"
           component={TripAssignedScreen}
+          options={{ presentation: 'modal', gestureEnabled: false }}
+        />
+        <Stack.Screen
+          name="IncomingTrip"
+          component={IncomingTripScreen}
           options={{ presentation: 'modal', gestureEnabled: false }}
         />
       </Stack.Navigator>
@@ -269,6 +294,19 @@ async function checkAndApplyUpdate() {
   }
 }
 
+// Routes to the full-screen incoming-trip card when the app was opened via
+// that notification — either a cold start (fullScreenAction/pressAction
+// launching the app fresh) or an already-running app whose notification
+// got pressed. Wrapped defensively throughout: notify-kit's native module
+// doesn't exist pre-rebuild, and even once it does, a failure here must
+// never prevent the app from opening normally — the driver falls back to
+// seeing the trip via DriverDashboard's own poll loop and the ordinary
+// Expo push, same as before this feature existed.
+function navigateToIncomingTrip(data) {
+  if (!data?.tripId || !navigationRef.isReady()) return;
+  navigationRef.navigate('IncomingTrip', data);
+}
+
 export default function App() {
   useEffect(() => {
     checkAndApplyUpdate();
@@ -280,9 +318,30 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
+  useEffect(() => {
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = notifee.onForegroundEvent(({ type, detail }) => {
+        if (type === EventType.PRESS) {
+          navigateToIncomingTrip(detail?.notification?.data);
+        }
+      });
+    } catch (err) {
+      console.log('[notifee] Could not subscribe to foreground events:', err?.message);
+    }
+    return () => unsubscribe();
+  }, []);
+
   return (
     <AuthProvider>
-      <NavigationContainer>
+      <NavigationContainer
+        ref={navigationRef}
+        onReady={() => {
+          notifee.getInitialNotification()
+            .then((initial) => navigateToIncomingTrip(initial?.notification?.data))
+            .catch((err) => console.log('[notifee] Could not read initial notification:', err?.message));
+        }}
+      >
         <AppNavigator />
       </NavigationContainer>
     </AuthProvider>

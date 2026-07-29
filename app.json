@@ -86,6 +86,7 @@
       ],
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
+      "react-native-notify-kit",
       "./plugins/withFullScreenIntent"
     ],
     "extra": {
