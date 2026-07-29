@@ -28,6 +28,7 @@
         "backgroundColor": "#e8192c"
       },
       "package": "com.medifleetapp.medifleetapp",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",

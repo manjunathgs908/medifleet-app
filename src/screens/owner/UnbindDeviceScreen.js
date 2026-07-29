@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
-import { ownerDriverApi } from '../../api/client';
+import { ownerDriverApi, assignmentsApi } from '../../api/client';
 
 /**
  * Minimal Owner tool: list drivers, unbind a stuck device. Backed by
@@ -24,6 +24,7 @@ export default function UnbindDeviceScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [unbindingId, setUnbindingId] = useState(null);
+  const [forceEndingId, setForceEndingId] = useState(null);
 
   const loadDrivers = useCallback(async () => {
     try {
@@ -71,6 +72,36 @@ export default function UnbindDeviceScreen() {
     }
   }
 
+  // Escape hatch for a driver stuck on duty with a dead app session — e.g.
+  // the device was lost or the app reinstalled before they could tap "End
+  // Duty". Unbind Device alone refuses in that case ("driver is on duty"),
+  // and there's no way to reach that driver's own session anymore, so this
+  // is the owner-side way to close it. Backend safely refuses if the
+  // driver actually has a live trip, or isn't on duty at all.
+  function confirmForceEndDuty(driver) {
+    Alert.alert(
+      'Force End Duty?',
+      `Only do this if ${driver.name} (${driver.employeeId})'s device is lost or the app was reinstalled — this ends their duty and frees their ambulance without going through their own device.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Force End Duty', style: 'destructive', onPress: () => handleForceEndDuty(driver) },
+      ]
+    );
+  }
+
+  async function handleForceEndDuty(driver) {
+    setForceEndingId(driver._id);
+    try {
+      await assignmentsApi.forceEndDuty(driver._id);
+      Alert.alert('Done', `${driver.name}'s duty has been ended.`);
+      await loadDrivers();
+    } catch (err) {
+      Alert.alert('Error', err.response?.data?.message || 'Could not force-end duty.');
+    } finally {
+      setForceEndingId(null);
+    }
+  }
+
   function renderDriver({ item }) {
     return (
       <View style={styles.row}>
@@ -81,17 +112,30 @@ export default function UnbindDeviceScreen() {
             {item.deviceId ? `Device: ${item.deviceId}` : 'Not bound'}
           </Text>
         </View>
-        <TouchableOpacity
-          style={[styles.unbindBtn, !item.deviceId && styles.unbindBtnDisabled]}
-          onPress={() => confirmUnbind(item)}
-          disabled={!item.deviceId || unbindingId === item._id}
-        >
-          {unbindingId === item._id ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.unbindBtnTxt}>Unbind Device</Text>
-          )}
-        </TouchableOpacity>
+        <View style={styles.actionsCol}>
+          <TouchableOpacity
+            style={[styles.unbindBtn, !item.deviceId && styles.unbindBtnDisabled]}
+            onPress={() => confirmUnbind(item)}
+            disabled={!item.deviceId || unbindingId === item._id}
+          >
+            {unbindingId === item._id ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.unbindBtnTxt}>Unbind Device</Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.forceEndBtn}
+            onPress={() => confirmForceEndDuty(item)}
+            disabled={forceEndingId === item._id}
+          >
+            {forceEndingId === item._id ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.forceEndBtnTxt}>Force End Duty</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -145,9 +189,12 @@ const styles = StyleSheet.create({
   meta: { color: '#9ca3af', fontSize: 12.5, marginTop: 2 },
   deviceId: { color: '#6b7280', fontSize: 11.5, marginTop: 4 },
 
+  actionsCol: { gap: 8, alignItems: 'stretch' },
   unbindBtn: { backgroundColor: '#ef4444', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14 },
   unbindBtnDisabled: { backgroundColor: '#374151' },
-  unbindBtnTxt: { color: '#fff', fontSize: 12.5, fontWeight: 'bold' },
+  unbindBtnTxt: { color: '#fff', fontSize: 12.5, fontWeight: 'bold', textAlign: 'center' },
+  forceEndBtn: { backgroundColor: '#7c2d12', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1, borderColor: '#f97316' },
+  forceEndBtnTxt: { color: '#fed7aa', fontSize: 12.5, fontWeight: 'bold', textAlign: 'center' },
 
   emptyTxt: { color: '#6b7280', fontSize: 14, textAlign: 'center', marginTop: 40 },
 });

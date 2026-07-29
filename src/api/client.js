@@ -114,6 +114,10 @@ export const assignmentsApi = {
   getFleetStatusAsOwner: (ownerAccessToken) => axios.get(`${API_URL}/assignments/fleet-status`, {
     headers: { Authorization: `Bearer ${ownerAccessToken}` },
   }),
+  // Escape hatch for a driver stuck on duty with no live app session
+  // (device lost/reinstalled) — unbind-device refuses while on duty, and
+  // the normal end-duty flow needs a driver JWT that no longer exists.
+  forceEndDuty: (driverId) => api.put(`/assignments/${driverId}/force-end-duty`),
 };
 
 // Owner OTP login (Phase 1 fleet-Owner model, separate from the User-model
