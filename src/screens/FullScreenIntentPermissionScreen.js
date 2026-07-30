@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, Linking } from 'react-native';
 
 /**
@@ -24,14 +24,24 @@ import { View, Text, TouchableOpacity, StyleSheet, Platform, Linking } from 'rea
  * action correctly lands on this app's specific row (rather than a general
  * list) hasn't been verified on a real device — worth confirming on an
  * actual Android 14+ handset.
+ *
+ * The "Continue" affirmation only appears after Settings has been opened at
+ * least once (openedSettings) — still can't verify the toggle was actually
+ * flipped, but a bare skip link visible from the start was too easy to miss
+ * on a screen whose entire purpose is preventing a real device symptom
+ * (notification delivered, full-screen card never appears) that gives no
+ * error anywhere in the app to signal something needs attention.
  */
 export default function FullScreenIntentPermissionScreen({ onDone }) {
+  const [openedSettings, setOpenedSettings] = useState(false);
+
   if (Platform.OS !== 'android') {
     onDone?.();
     return null;
   }
 
   async function openFullScreenIntentSettings() {
+    setOpenedSettings(true);
     try {
       await Linking.sendIntent('android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT_SETTINGS');
     } catch {
@@ -49,16 +59,30 @@ export default function FullScreenIntentPermissionScreen({ onDone }) {
         <Text style={styles.subtitle}>
           So a new trip alert can wake your screen and show up even when MediFleet is closed —
           like an incoming call — Android needs permission to show full-screen alerts for this app.
-          Look for "Full screen notifications" or "Display over other apps" in the screen that opens.
+          Look for "Full screen notifications" in the screen that opens, and turn it ON for MediFleet.
+        </Text>
+        {/* Without this permission, trip alerts still arrive as a normal
+            notification — they just won't take over the screen. Said
+            plainly, not left implicit, since that's exactly the failure
+            mode this screen exists to prevent. */}
+        <Text style={styles.warnText}>
+          Without this, trip alerts will show as a normal notification only — not the
+          full-screen alert.
         </Text>
 
         <TouchableOpacity style={styles.button} onPress={openFullScreenIntentSettings}>
           <Text style={styles.buttonText}>Open Settings</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={onDone} style={{ marginTop: 14 }}>
-          <Text style={styles.skipText}>Continue →</Text>
-        </TouchableOpacity>
+        {/* No way to verify the toggle was actually flipped (see file
+            header) — but requiring the Settings screen to have been opened
+            at least once before "Continue" becomes reachable is far less
+            skippable than a bare link sitting there from the start. */}
+        {openedSettings && (
+          <TouchableOpacity onPress={onDone} style={{ marginTop: 14 }}>
+            <Text style={styles.skipText}>I've enabled it — Continue →</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -72,7 +96,8 @@ const styles = StyleSheet.create({
   card: { backgroundColor: '#111827', borderRadius: 16, padding: 30, width: '100%', maxWidth: 400, alignItems: 'center' },
   icon: { fontSize: 40, marginBottom: 8 },
   title: { fontSize: 22, fontWeight: 'bold', color: '#fff', textAlign: 'center', marginBottom: 8 },
-  subtitle: { fontSize: 13, color: '#9ca3af', textAlign: 'center', marginBottom: 18, lineHeight: 19 },
+  subtitle: { fontSize: 13, color: '#9ca3af', textAlign: 'center', marginBottom: 10, lineHeight: 19 },
+  warnText: { fontSize: 12, color: '#f59e0b', textAlign: 'center', marginBottom: 18, lineHeight: 17, fontWeight: '600' },
   button: { backgroundColor: '#10b981', borderRadius: 10, padding: 16, alignItems: 'center', width: '100%' },
   buttonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
   skipText: { color: '#6b7280', fontSize: 13, fontWeight: '600' },

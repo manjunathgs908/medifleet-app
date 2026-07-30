@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, ScrollView } from 'react-native';
 import { acceptTrip, rejectTrip } from '../../utils/tripResponse';
+import * as TripCall from 'trip-call';
 
 // Same formatter as TripAssignedScreen.js — selectedType is a raw Pricing
 // serviceType id with no label table anywhere in the app/backend.
@@ -29,9 +30,25 @@ export default function IncomingTripScreen({ navigation, route }) {
   } = route.params || {};
   const [submitting, setSubmitting] = useState(false);
 
+  // The native Connection's own 30s ring timeout (modules/trip-call) fires
+  // independent of this screen — if the driver never taps a button, the OS
+  // call ends on its own and this listener dismisses the card to match.
+  // Doesn't fire for 'answered'/'rejected' from OUR OWN button taps below
+  // (this screen has already navigated away by the time those resolve), so
+  // no double-handling.
+  useEffect(() => {
+    const sub = TripCall.addCallEndedListener(({ reason }) => {
+      if (reason === 'timeout') {
+        navigation.replace('DriverDashboard');
+      }
+    });
+    return () => sub.remove();
+  }, [navigation]);
+
   async function handleAccept() {
     setSubmitting(true);
     try {
+      TripCall.answerCall();
       const confirmedTrip = await acceptTrip(tripId);
       navigation.replace('DriverDashboard', { confirmedTrip });
     } catch (e) {
@@ -44,6 +61,7 @@ export default function IncomingTripScreen({ navigation, route }) {
   async function handleReject() {
     setSubmitting(true);
     try {
+      TripCall.rejectCall();
       await rejectTrip(tripId);
     } catch (e) {
       Alert.alert('Error', e.response?.data?.message || 'Could not decline the trip, but you can still go back.');
