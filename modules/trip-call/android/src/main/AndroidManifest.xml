@@ -1,0 +1,28 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!-- Required to use the self-managed ConnectionService APIs
+       (TelecomManager.addNewIncomingCall, registerPhoneAccount). Normal
+       permission — no runtime prompt, unlike POST_NOTIFICATIONS. -->
+  <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+
+  <!-- Defensive, Android 14+ (API 34) foreground-service-type compliance
+       in case a future change adds an explicit foreground service for
+       call resilience. Not currently used by a running foreground
+       service — the self-managed telecom binding itself keeps the
+       process alive for the duration of the call — but declaring it now
+       costs nothing and avoids a manifest change being on the critical
+       path later. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+
+  <application>
+    <service
+      android:name="com.medifleetapp.tripcall.TripConnectionService"
+      android:exported="true"
+      android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+      <intent-filter>
+        <action android:name="android.telecom.ConnectionService" />
+      </intent-filter>
+    </service>
+  </application>
+</manifest>

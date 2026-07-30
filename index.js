@@ -2,6 +2,7 @@ import { registerRootComponent } from 'expo';
 import * as TaskManager from 'expo-task-manager';
 import * as Notifications from 'expo-notifications';
 import notifee, { AndroidImportance, AndroidCategory, AndroidFlags, AndroidVisibility } from 'react-native-notify-kit';
+import * as TripCall from 'trip-call';
 
 import App from './App';
 
@@ -109,6 +110,19 @@ try {
     // itself via its own independent pipeline, same as always.
     if (!payload.tripId) return;
 
+    // Primary path: self-managed Telecom ConnectionService — rings/wakes
+    // the device and opens the incoming-call UI independent of Android's
+    // per-app full-screen-intent authorization gate (see modules/trip-call).
+    try {
+      await TripCall.startIncomingCall(payload);
+    } catch (err) {
+      console.log('[notif-task] Could not start native incoming call:', err?.message);
+    }
+
+    // Fallback: notify-kit full-screen notification. Kept alongside the
+    // ConnectionService path (not replaced) — if the Telecom call for any
+    // reason doesn't surface a UI (OEM quirk, PhoneAccount not yet
+    // registered on this launch), the driver still gets the notification.
     try {
       await displayFullScreenTripCard({ data: payload });
     } catch (err) {

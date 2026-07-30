@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.medifleetapp.tripcall'
+version = '1.0.0'
+
+android {
+  namespace "com.medifleetapp.tripcall"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // No extra native deps — everything used (android.telecom.*, android.media.Ringtone,
+  // android.os.Vibrator) is part of the Android SDK itself.
+}

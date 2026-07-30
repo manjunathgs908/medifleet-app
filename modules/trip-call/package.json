@@ -1,0 +1,7 @@
+{
+  "name": "trip-call",
+  "version": "1.0.0",
+  "description": "Self-managed Android Telecom ConnectionService for Ola/Uber-style incoming trip alerts. Local, project-only module — not published.",
+  "main": "index.js",
+  "license": "UNLICENSED"
+}

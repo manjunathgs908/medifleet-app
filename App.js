@@ -7,6 +7,7 @@ import * as Location from 'expo-location';
 import * as Updates from 'expo-updates';
 import * as Notifications from 'expo-notifications';
 import notifee, { EventType } from 'react-native-notify-kit';
+import * as TripCall from 'trip-call';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import WelcomeScreen from './src/screens/WelcomeScreen';
@@ -332,6 +333,27 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // ConnectionService self-managed PhoneAccounts, unlike classic
+  // ConnectionManager ones, don't need the user to manually enable them in
+  // Settings — registerPhoneAccount() alone is enough, so this can just run
+  // on every launch. No-op on iOS/web (modules/trip-call/index.js).
+  useEffect(() => {
+    TripCall.registerPhoneAccountAsync().catch((err) => {
+      console.log('[trip-call] Could not register phone account:', err?.message);
+    });
+  }, []);
+
+  // Primary incoming-call route: fires whenever the native ConnectionService
+  // creates a connection (index.js's background task called
+  // TripCall.startIncomingCall) while this JS bridge is alive — covers both
+  // foreground and backgrounded-but-not-killed app states.
+  useEffect(() => {
+    const sub = TripCall.addIncomingCallListener(({ data }) => {
+      navigateToIncomingTrip(data);
+    });
+    return () => sub.remove();
+  }, []);
+
   return (
     <AuthProvider>
       <NavigationContainer
@@ -340,6 +362,16 @@ export default function App() {
           notifee.getInitialNotification()
             .then((initial) => navigateToIncomingTrip(initial?.notification?.data))
             .catch((err) => console.log('[notifee] Could not read initial notification:', err?.message));
+
+          // Cold-start route: the app was fully killed, so no JS listener
+          // was alive to catch the 'onIncomingCall' event —
+          // TripConnectionService.launchIncomingCallActivity() instead put
+          // the trip data straight on the launching Intent's extras, which
+          // this reads once at startup (same "read once at launch" shape
+          // as notifee.getInitialNotification() above).
+          TripCall.getLaunchCallDataAsync()
+            .then((data) => navigateToIncomingTrip(data))
+            .catch((err) => console.log('[trip-call] Could not read launch call data:', err?.message));
         }}
       >
         <AppNavigator />
