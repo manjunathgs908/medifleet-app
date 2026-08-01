@@ -448,6 +448,22 @@ function navigateToIncomingTrip(data) {
   navigationRef.navigate('IncomingTrip', data);
 }
 
+// Lets DriverDashboard's poll loop check the CURRENT navigation state
+// before also popping up TripAssignedScreen for a trip the FCM path has
+// already put on screen — the two paths detect the same dispatch
+// independently (see TripAssignedScreen.js's own header comment), and
+// without this check whichever navigate() call lands second wins,
+// silently swapping out a screen whose Accept/Reject the driver may
+// already be about to tap. Reads live navigator state rather than a
+// separately-tracked flag, so it can never go stale if IncomingTrip
+// dismisses itself (timeout, accept, reject, crash) — the fallback poll
+// picks the trip up again next tick exactly as it did before this screen existed.
+export function isIncomingTripOnScreen(tripId) {
+  if (!tripId || !navigationRef.isReady()) return false;
+  const current = navigationRef.getCurrentRoute();
+  return current?.name === 'IncomingTrip' && String(current?.params?.tripId) === String(tripId);
+}
+
 export default function App() {
   useEffect(() => {
     checkAndApplyUpdate();

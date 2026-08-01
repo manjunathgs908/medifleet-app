@@ -12,6 +12,7 @@ import { getRouteInfo } from '../../utils/routeUtils';
 import { getCachedPushToken, refreshPushToken } from '../../utils/pushToken';
 import { getCachedFcmToken, refreshFcmToken } from '../../utils/fcmToken';
 import * as TripCall from 'trip-call';
+import { isIncomingTripOnScreen } from '../../../App';
 
 // e.g. "bls_tempo" -> "BLS TEMPO", "dead-body" -> "DEAD BODY" — same
 // word-splitting TripAssignedScreen.js's formatAmbulanceType uses,
@@ -404,6 +405,13 @@ export default function DriverDashboard({ navigation, route }) {
         // show the Accept/Reject popup instead of surfacing it as active.
         const unconfirmed = trips.find(t => t.status === 'dispatched' && !t.driverConfirmed);
         if (unconfirmed) {
+          // The FCM/Telecom path may already have this exact trip on
+          // screen as IncomingTrip — don't also navigate to TripAssigned
+          // and steal focus from a screen the driver's about to answer.
+          // Deliberately doesn't set promptedTripKeyRef here: if
+          // IncomingTrip disappears without resolving the trip (timeout,
+          // crash, etc.), the next tick re-checks and falls back normally.
+          if (isIncomingTripOnScreen(unconfirmed._id)) return;
           const key = `${unconfirmed._id}-${unconfirmed.dispatchedAt}`;
           if (promptedTripKeyRef.current !== key) {
             promptedTripKeyRef.current = key;
