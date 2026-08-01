@@ -2,6 +2,7 @@ import { registerRootComponent } from 'expo';
 import * as TaskManager from 'expo-task-manager';
 import * as Notifications from 'expo-notifications';
 import notifee, { AndroidImportance, AndroidCategory, AndroidFlags, AndroidVisibility } from 'react-native-notify-kit';
+import messaging from '@react-native-firebase/messaging';
 import * as TripCall from 'trip-call';
 
 import App from './App';
@@ -60,25 +61,89 @@ async function displayFullScreenTripCard(remoteMessage) {
 }
 
 // ============================================================
-// Option (b) from the FCM-conflict investigation: react-native-firebase's
-// messaging().setBackgroundMessageHandler provably never fired — Android
-// only delivers an incoming FCM message to ONE registered
-// FirebaseMessagingService (first one declared in the merged manifest
-// wins; expo-notifications' ExpoFirebaseMessagingService wins that race
-// here), so RNFirebase's handler was structurally unreachable no matter
-// what we did on the JS side.
+// Registered on BOTH possible delivery paths — expo-notifications'
+// TaskManager pipeline AND react-native-firebase's own background handler.
 //
-// expo-notifications' own native code (FirebaseMessagingDelegate.
-// onMessageReceived, read directly from its Kotlin source) already
-// forwards EVERY incoming FCM message — regardless of who sent it — to
-// any task registered via expo-notifications' registerTaskAsync/
-// expo-task-manager, in addition to displaying Expo's own notifications.
-// So instead of fighting for FCM delivery, this hooks into that existing,
-// always-running pipeline. expo-notifications' own service, manifest, and
-// display behavior are completely untouched by this — Expo's push keeps
-// working exactly as it does today regardless of anything below.
+// Earlier assumption (now known wrong on this device/build) was that only
+// one native FirebaseMessagingService can receive a given message, that
+// expo-notifications' own service always wins that race, and that RNFirebase's
+// setBackgroundMessageHandler was therefore structurally unreachable — so
+// only the TaskManager path was wired up.
+//
+// Real-device evidence contradicts that: sending a test push produced
+// RNFirebase's own "No background message handler has been set" warning
+// 108ms after send, with zero TaskManager/TripCall activity anywhere in
+// logcat. That means RNFirebase's native receiver got the message and
+// dropped it — the opposite of the original assumption. Which service wins
+// is apparently not reliably predictable (may vary by build/OEM/manifest-
+// merge order), so instead of re-verifying that per build, both paths are
+// now registered. Whichever one the OS actually invokes, handleTripCallMessage
+// runs — the dedup guard below stops a double-fire if some future build
+// somehow delivers to both.
 // ============================================================
 const BACKGROUND_NOTIFICATION_TASK = 'BACKGROUND-NOTIFICATION-TASK';
+
+// tripId -> handled, evicted after DEDUP_WINDOW_MS. Only needed if a
+// message is ever delivered to both paths for the same trip — normally
+// exactly one of the two fires.
+const recentlyHandledTripIds = new Set();
+const DEDUP_WINDOW_MS = 60000;
+
+// Shared by both delivery paths — do not duplicate this logic per-path.
+// `source` is only for the diagnostic log, to see in Metro which native
+// path actually fired.
+async function handleTripCallMessage(rawData, source) {
+  console.log(`[trip-call] ${source} fired`);
+
+  // Our own raw FCM data-only message (utils/fcmService.js on the
+  // backend) spreads every field directly onto `data` — verified against
+  // expo-notifications' actual native serializer (RemoteMessageSerializer
+  // .java), not assumed. `dataString` is a separate, unrelated field in
+  // that same serializer (only ever set from a `body` key) — handled
+  // here anyway, defensively, per the driving concern that our payload
+  // comes from a raw firebase-admin send, not Expo's own relay, so its
+  // exact shape on arrival isn't a documented contract either way.
+  let payload = rawData || {};
+  if (!payload.tripId && typeof payload.dataString === 'string') {
+    try {
+      const parsed = JSON.parse(payload.dataString);
+      payload = { ...payload, ...parsed };
+    } catch (parseErr) {
+      // Not JSON, or not our shape — ignore, fall through below.
+    }
+  }
+
+  // Expo's own messages (channelId/projectId/scopeKey/experienceId, no
+  // tripId) must do nothing here — expo-notifications displays those
+  // itself via its own independent pipeline, same as always.
+  if (!payload.tripId) return;
+
+  if (recentlyHandledTripIds.has(payload.tripId)) {
+    console.log(`[trip-call] ${source}: tripId ${payload.tripId} already handled via the other path, skipping.`);
+    return;
+  }
+  recentlyHandledTripIds.add(payload.tripId);
+  setTimeout(() => recentlyHandledTripIds.delete(payload.tripId), DEDUP_WINDOW_MS);
+
+  // Primary path: self-managed Telecom ConnectionService — rings/wakes
+  // the device and opens the incoming-call UI independent of Android's
+  // per-app full-screen-intent authorization gate (see modules/trip-call).
+  try {
+    await TripCall.startIncomingCall(payload);
+  } catch (err) {
+    console.log('[notif-task] Could not start native incoming call:', err?.message);
+  }
+
+  // Fallback: notify-kit full-screen notification. Kept alongside the
+  // ConnectionService path (not replaced) — if the Telecom call for any
+  // reason doesn't surface a UI (OEM quirk, PhoneAccount not yet
+  // registered on this launch), the driver still gets the notification.
+  try {
+    await displayFullScreenTripCard({ data: payload });
+  } catch (err) {
+    console.log('[notif-task] Could not display full-screen trip card:', err?.message);
+  }
+}
 
 try {
   TaskManager.defineTask(BACKGROUND_NOTIFICATION_TASK, async ({ data, error }) => {
@@ -86,48 +151,7 @@ try {
       console.log('[notif-task] Task error:', error.message);
       return;
     }
-
-    // Our own raw FCM data-only message (utils/fcmService.js on the
-    // backend) spreads every field directly onto `data` — verified against
-    // expo-notifications' actual native serializer (RemoteMessageSerializer
-    // .java), not assumed. `dataString` is a separate, unrelated field in
-    // that same serializer (only ever set from a `body` key) — handled
-    // here anyway, defensively, per the driving concern that our payload
-    // comes from a raw firebase-admin send, not Expo's own relay, so its
-    // exact shape on arrival isn't a documented contract either way.
-    let payload = data || {};
-    if (!payload.tripId && typeof payload.dataString === 'string') {
-      try {
-        const parsed = JSON.parse(payload.dataString);
-        payload = { ...payload, ...parsed };
-      } catch (parseErr) {
-        // Not JSON, or not our shape — ignore, fall through below.
-      }
-    }
-
-    // Expo's own messages (channelId/projectId/scopeKey/experienceId, no
-    // tripId) must do nothing here — expo-notifications displays those
-    // itself via its own independent pipeline, same as always.
-    if (!payload.tripId) return;
-
-    // Primary path: self-managed Telecom ConnectionService — rings/wakes
-    // the device and opens the incoming-call UI independent of Android's
-    // per-app full-screen-intent authorization gate (see modules/trip-call).
-    try {
-      await TripCall.startIncomingCall(payload);
-    } catch (err) {
-      console.log('[notif-task] Could not start native incoming call:', err?.message);
-    }
-
-    // Fallback: notify-kit full-screen notification. Kept alongside the
-    // ConnectionService path (not replaced) — if the Telecom call for any
-    // reason doesn't surface a UI (OEM quirk, PhoneAccount not yet
-    // registered on this launch), the driver still gets the notification.
-    try {
-      await displayFullScreenTripCard({ data: payload });
-    } catch (err) {
-      console.log('[notif-task] Could not display full-screen trip card:', err?.message);
-    }
+    await handleTripCallMessage(data, 'expo-task-manager');
   });
 
   Notifications.registerTaskAsync(BACKGROUND_NOTIFICATION_TASK).catch((err) => {
@@ -139,6 +163,14 @@ try {
   // here must never take down the app or the already-working
   // expo-notifications push path.
   console.log('[notif-task] Could not define background notification task:', err?.message);
+}
+
+try {
+  messaging().setBackgroundMessageHandler(async (remoteMessage) => {
+    await handleTripCallMessage(remoteMessage?.data, 'rnfirebase-background-handler');
+  });
+} catch (err) {
+  console.log('[notif-task] Could not set RNFirebase background handler:', err?.message);
 }
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);

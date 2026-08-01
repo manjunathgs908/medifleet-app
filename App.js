@@ -65,7 +65,6 @@ if (Platform.OS === 'android') {
   Notifications.setNotificationChannelAsync('trip-alerts', {
     name: 'Trip Alerts',
     importance: Notifications.AndroidImportance.MAX,
-    sound: 'default',
     vibrationPattern: [0, 250, 250, 250],
     enableVibrate: true,
     enableLights: true,
