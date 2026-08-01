@@ -187,7 +187,7 @@ class TripCallModule : Module(), TripCallListener {
     sendEvent("onIncomingCall", mapOf("data" to map))
   }
 
-  override fun onCallEnded(reason: String) {
-    sendEvent("onCallEnded", mapOf("reason" to reason))
+  override fun onCallEnded(tripId: String?, reason: String) {
+    sendEvent("onCallEnded", mapOf("reason" to reason, "tripId" to tripId))
   }
 }

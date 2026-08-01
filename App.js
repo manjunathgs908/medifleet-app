@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef, StackActions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ActivityIndicator, View, AppState, Platform } from 'react-native';
 import { useCameraPermissions } from 'expo-camera';
@@ -451,7 +451,18 @@ async function checkAndApplyUpdate() {
 // Expo push, same as before this feature existed.
 function navigateToIncomingTrip(data) {
   if (!data?.tripId || !navigationRef.isReady()) return;
-  navigationRef.navigate('IncomingTrip', data);
+  // push, not navigate — navigate() to a route already focused (the
+  // common case: a second booking arriving while the first's
+  // IncomingTripScreen is still on screen) reuses that same route
+  // instance and just overwrites its params (confirmed against
+  // @react-navigation/routers' StackRouter source), silently replacing
+  // the first trip's card with the second's. push() always adds a new
+  // stack entry, so the driver sees both — the second on top, the first
+  // still intact underneath once the second is resolved. Safe alongside
+  // IncomingTripScreen's onCallEnded handling now that events carry
+  // tripId (see TripCallBridge.emitCallEnded) — each stacked screen only
+  // reacts to its own call ending, not whichever one happens to end first.
+  navigationRef.dispatch(StackActions.push('IncomingTrip', data));
 }
 
 // Lets DriverDashboard's poll loop check the CURRENT navigation state

@@ -30,27 +30,49 @@ export default function IncomingTripScreen({ navigation, route }) {
   } = route.params || {};
   const [submitting, setSubmitting] = useState(false);
 
-  // The native Connection's own 30s ring timeout (modules/trip-call) fires
+  // Overlapping bookings push a new IncomingTripScreen on top rather than
+  // replacing this one (see App.js's navigateToIncomingTrip) — so once
+  // THIS call resolves, there may be another one still stacked underneath,
+  // unresolved. Jumping straight to 'DriverDashboard' would skip right
+  // past it. Go back to reveal it if it's there; otherwise fall through
+  // to the dashboard exactly as before (and keep the confirmedTrip
+  // fast-path — DriverDashboard reads it to show the accepted trip
+  // immediately instead of waiting for its next poll tick, see its own
+  // confirmedTrip effect).
+  function dismissAfterResolution(params) {
+    const state = navigation.getState();
+    const stackedBelow = state.routes[state.routes.length - 2];
+    if (stackedBelow?.name === 'IncomingTrip') {
+      navigation.goBack();
+    } else {
+      navigation.replace('DriverDashboard', params);
+    }
+  }
+
+  // The native Connection's own ring timeout (modules/trip-call) fires
   // independent of this screen — if the driver never taps a button, the OS
   // call ends on its own and this listener dismisses the card to match.
   // Doesn't fire for 'answered'/'rejected' from OUR OWN button taps below
   // (this screen has already navigated away by the time those resolve), so
-  // no double-handling.
+  // no double-handling. eventTripId is checked against this screen's own
+  // tripId — with calls possibly stacked, a DIFFERENT call timing out
+  // must not dismiss this one.
   useEffect(() => {
-    const sub = TripCall.addCallEndedListener(({ reason }) => {
+    const sub = TripCall.addCallEndedListener(({ tripId: eventTripId, reason }) => {
+      if (eventTripId !== tripId) return;
       if (reason === 'timeout') {
-        navigation.replace('DriverDashboard');
+        dismissAfterResolution();
       }
     });
     return () => sub.remove();
-  }, [navigation]);
+  }, [navigation, tripId]);
 
   async function handleAccept() {
     setSubmitting(true);
     try {
       await TripCall.answerCall(tripId);
       const confirmedTrip = await acceptTrip(tripId);
-      navigation.replace('DriverDashboard', { confirmedTrip });
+      dismissAfterResolution({ confirmedTrip });
     } catch (e) {
       const msg = e.response?.data?.message || 'Could not confirm the trip. Please try again.';
       Alert.alert('Error', msg);
@@ -67,7 +89,7 @@ export default function IncomingTripScreen({ navigation, route }) {
       Alert.alert('Error', e.response?.data?.message || 'Could not decline the trip, but you can still go back.');
     } finally {
       setSubmitting(false);
-      navigation.replace('DriverDashboard');
+      dismissAfterResolution();
     }
   }
 

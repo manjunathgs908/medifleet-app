@@ -90,7 +90,7 @@ class TripConnection(
     mainHandler.removeCallbacks(timeoutRunnable)
     stopRingtoneAndVibration()
     setActive()
-    TripCallBridge.emitCallEnded("answered")
+    TripCallBridge.emitCallEnded(tripId, "answered")
     // Deliberately NOT calling endCall()/destroy() here — an active call
     // stays reachable (by tripId, in TripCallBridge's map) until the trip
     // itself completes; TripCallModule.endCall(tripId) is what destroys it
@@ -116,7 +116,7 @@ class TripConnection(
     stopRingtoneAndVibration()
     setDisconnected(cause)
     destroy()
-    TripCallBridge.emitCallEnded(reason)
+    TripCallBridge.emitCallEnded(tripId, reason)
     tripId?.let { TripCallBridge.unregisterConnection(it) }
   }
 

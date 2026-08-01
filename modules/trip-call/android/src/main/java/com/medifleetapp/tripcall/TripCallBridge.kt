@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 interface TripCallListener {
   fun onIncomingCall(data: Bundle)
-  fun onCallEnded(reason: String)
+  fun onCallEnded(tripId: String?, reason: String)
 }
 
 object TripCallBridge {
@@ -49,8 +49,13 @@ object TripCallBridge {
     listener?.onIncomingCall(data)
   }
 
-  fun emitCallEnded(reason: String) {
-    listener?.onCallEnded(reason)
+  // tripId travels with the event now — see the double IncomingTripScreen
+  // fix in App.js/IncomingTripScreen.js: onCallEnded previously carried
+  // only a bare reason, so any mounted screen reacted to ANY call ending
+  // anywhere (e.g. a different, stacked call's timeout could dismiss the
+  // wrong screen).
+  fun emitCallEnded(tripId: String?, reason: String) {
+    listener?.onCallEnded(tripId, reason)
   }
 
   // Native-only handshake between TripCallModule.startIncomingCall (the

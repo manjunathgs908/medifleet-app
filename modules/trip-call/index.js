@@ -83,11 +83,16 @@ export function addIncomingCallListener(listener) {
 }
 
 // Fired when the native call ends for any reason not initiated by our own
-// answerCall()/rejectCall() JS calls — currently just the 30s ring timeout
+// answerCall()/rejectCall() JS calls — currently just the ring timeout
 // (event.reason === 'timeout'), so JS can dismiss the incoming-call screen
 // if the driver never responded. Also fires with reason 'answered' /
 // 'rejected' as a mirror of the JS-initiated calls above, so a single
 // listener can uniformly react to "the call is over" regardless of cause.
+// event.tripId identifies which call this is about — since overlapping
+// bookings can each have their own IncomingTripScreen instance stacked
+// (see App.js's navigateToIncomingTrip), a listener MUST check
+// event.tripId against its own screen's tripId before reacting, or one
+// call ending can dismiss a completely different one still on screen.
 export function addCallEndedListener(listener) {
   if (!emitter) return { remove() {} };
   return emitter.addListener('onCallEnded', listener);
