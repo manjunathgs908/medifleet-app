@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, ScrollView } from 'react-native';
 import { acceptTrip, rejectTrip } from '../../utils/tripResponse';
+import * as TripCall from 'trip-call';
 
 // selectedType is a raw Pricing serviceType id (e.g. "bls", "dead-body") —
 // no label table exists anywhere in the app/backend, so this just makes
@@ -26,9 +27,18 @@ export default function TripAssignedScreen({ navigation, route }) {
   const estimatedFare = (trip?.baseFare || 0) + (trip?.additionalCharges || 0);
   const isScheduled = trip?.scheduleType === 'later';
 
+  // A dispatched trip can reach this screen via DriverDashboard's own
+  // polling independently of (and possibly after) the FCM/Telecom path
+  // that rings the native call and shows IncomingTripScreen — both react
+  // to the same dispatch. Without these calls, Accept/Reject here only
+  // touched the backend API; the native Connection (if one exists for
+  // this tripId) never learned the driver responded and kept ringing
+  // forever. Safe no-op if no matching connection exists (e.g. this trip
+  // was never delivered via FCM) — TripCallBridge just finds nothing.
   async function handleAccept() {
     setSubmitting(true);
     try {
+      await TripCall.answerCall(trip._id);
       const confirmedTrip = await acceptTrip(trip._id);
       navigation.navigate('DriverDashboard', { confirmedTrip });
     } catch (e) {
@@ -41,6 +51,7 @@ export default function TripAssignedScreen({ navigation, route }) {
   async function handleReject() {
     setSubmitting(true);
     try {
+      await TripCall.rejectCall(trip._id);
       await rejectTrip(trip._id);
     } catch (e) {
       Alert.alert('Error', e.response?.data?.message || 'Could not decline the trip, but you can still go back.');
