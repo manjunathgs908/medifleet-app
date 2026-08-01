@@ -70,7 +70,11 @@ export const driverAuthApi = {
   // authController.updateLocation), so omitting/nulling it here is safe.
   // fcmToken is a separate, additive field (Phase 1 of the full-screen
   // incoming-trip card) — raw FCM device token, not the Expo push token.
-  updateLocation: (lat, lng, status, pushToken, fcmToken) => api.put('/driver-auth/location', { lat, lng, status, pushToken, fcmToken }),
+  // accuracy (meters) feeds the fixed-posting geofence check — backend
+  // ignores the whole geofence evaluation on any ping missing it or
+  // worse than 50m, so omitting it just means that ping is skipped, same
+  // as before this field existed.
+  updateLocation: (lat, lng, status, pushToken, fcmToken, accuracy) => api.put('/driver-auth/location', { lat, lng, status, pushToken, fcmToken, accuracy }),
   // Phase 3 — driver uploads their own onboarding documents (dl/aadhaar/photo).
   uploadDocument: (docType, fields) => api.put('/driver-auth/documents', { docType, ...fields }),
 };

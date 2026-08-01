@@ -349,7 +349,7 @@ export default function DriverDashboard({ navigation, route }) {
         const loc = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
         });
-        const { latitude, longitude } = loc.coords;
+        const { latitude, longitude, accuracy } = loc.coords;
 
         setDriverLoc({ latitude, longitude });
         setDriverLocUpdatedAt(Date.now());
@@ -380,7 +380,7 @@ export default function DriverDashboard({ navigation, route }) {
         const liveStatus = activeTripRef.current
           ? 'on_trip'
           : (onDutyRef.current ? 'available' : 'offline');
-        await driverAuthApi.updateLocation(latitude, longitude, liveStatus, getCachedPushToken(), getCachedFcmToken());
+        await driverAuthApi.updateLocation(latitude, longitude, liveStatus, getCachedPushToken(), getCachedFcmToken(), accuracy);
       } catch (err) {
         // Silent — next interval tick will retry automatically.
       }
