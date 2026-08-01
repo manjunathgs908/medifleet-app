@@ -8,6 +8,8 @@ import * as Updates from 'expo-updates';
 import * as Notifications from 'expo-notifications';
 import notifee, { EventType } from 'react-native-notify-kit';
 import * as TripCall from 'trip-call';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BatteryOptEnabled } from 'react-native-battery-optimization-check';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import WelcomeScreen from './src/screens/WelcomeScreen';
@@ -76,6 +78,78 @@ if (Platform.OS === 'android') {
 
 const Stack = createNativeStackNavigator();
 
+// Shared across every driver-branch navigator below (all onboarding gates
+// AND the final full navigator) — not just the last one. A trip can arrive
+// via FCM at any point while a driver is on duty, including while they're
+// re-doing these one-time-per-session onboarding taps (e.g. after the app
+// was backgrounded/killed and reopened — the server still has them on
+// duty, but these client-side flags reset to false on every fresh
+// session). Previously IncomingTrip only existed in the final navigator,
+// so navigate('IncomingTrip', ...) silently failed
+// ("NAVIGATE ... was not handled by any navigator") whenever a real trip
+// arrived during onboarding — the driver never saw it.
+const incomingTripScreen = (
+  <Stack.Screen
+    name="IncomingTrip"
+    component={IncomingTripScreen}
+    options={{ presentation: 'modal', gestureEnabled: false }}
+  />
+);
+
+// Same reasoning as incomingTripScreen above — IncomingTripScreen's own
+// handleAccept()/handleReject() navigate.replace('DriverDashboard', ...)
+// once the trip response API call resolves, which needs a target to land
+// on regardless of which gate the driver was mid-onboarding on.
+const driverDashboardScreen = (
+  <Stack.Screen name="DriverDashboard" component={DriverDashboard} />
+);
+
+// termsAccepted and profileConfirmed are pure one-time acknowledgements
+// with no OS-level state to re-check — persisted per driver (keyed by _id)
+// so an already-on-duty
+// driver isn't forced through them again every time Vivo kills the app
+// process and it restarts. permissionsConfirmed, batteryOptDone, and most
+// of fullScreenIntentDone are deliberately NOT here: they're real OS
+// permissions that can be granted, then later revoked (by the driver, or
+// by Vivo's own aggressive permission auto-reset) — persisting a one-time
+// "done" flag for those would go stale and skip a gate that should have
+// re-appeared. Those three are instead re-checked against live OS state
+// on every app start (see the effect in AppNavigator). The one exception:
+// fullScreenIntentDone has no live-check API available anywhere in the
+// currently installed dependencies (see FullScreenIntentPermissionScreen.js's
+// own header comment — this was already investigated) — persisted here
+// as a documented fallback, not a preference.
+const PERSISTED_ONBOARDING_KEYS = ['termsAccepted', 'profileConfirmed', 'fullScreenIntentDone'];
+
+function onboardingFlagsStorageKey(userId) {
+  return `driverOnboardingFlags:${userId}`;
+}
+
+// Best-effort both ways — a failed read just means the driver re-taps
+// through the gates once more (the pre-existing behavior), a failed write
+// means the same on next restart. Never blocks the gates themselves.
+async function loadOnboardingFlags(userId) {
+  try {
+    const raw = await AsyncStorage.getItem(onboardingFlagsStorageKey(userId));
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveOnboardingFlag(userId, key, value) {
+  if (!userId || !PERSISTED_ONBOARDING_KEYS.includes(key)) return;
+  try {
+    const storageKey = onboardingFlagsStorageKey(userId);
+    const raw = await AsyncStorage.getItem(storageKey);
+    const saved = raw ? JSON.parse(raw) : {};
+    saved[key] = value;
+    await AsyncStorage.setItem(storageKey, JSON.stringify(saved));
+  } catch {
+    // Best-effort — see loadOnboardingFlags comment.
+  }
+}
+
 // Lets index.js's notification-open handling (see App() below) navigate
 // from outside any screen component — the standard React Navigation
 // pattern for reacting to events that aren't a JS button press.
@@ -93,6 +167,7 @@ function AppNavigator() {
   // step is skipped for the rest of the session.
   const [welcomeDone, setWelcomeDone] = useState(false);
   const [deviceVerified, setDeviceVerified] = useState(false);
+  const [onboardingGatePreChecksDone, setOnboardingGatePreChecksDone] = useState(false);
   const [batteryOptDone, setBatteryOptDone] = useState(Platform.OS !== 'android');
   const [fullScreenIntentDone, setFullScreenIntentDone] = useState(Platform.OS !== 'android');
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -111,6 +186,43 @@ function AppNavigator() {
   const [permissionsConfirmed, setPermissionsConfirmed] = useState(false);
   const [cameraPermission] = useCameraPermissions();
   const [locationPermission] = Location.useForegroundPermissions();
+
+  // Runs once per driver session: reads the two persisted pure
+  // acknowledgements plus fullScreenIntentDone's documented-fallback
+  // persistence (see PERSISTED_ONBOARDING_KEYS above), and separately
+  // re-checks battery optimization against LIVE OS state (BatteryOptEnabled()
+  // resolving false means optimization is OFF, i.e. the gate can be
+  // skipped) rather than a stale persisted flag — a driver could have
+  // granted it once, then had it silently revoked later (by themselves,
+  // or by Vivo's own aggressive permission auto-reset), and a persisted
+  // "done" flag would incorrectly skip re-prompting them.
+  // permissionsConfirmed needs no equivalent check here — it already
+  // re-verifies live via the cameraPermission/locationPermission hooks
+  // above, on every render, not just once at startup.
+  useEffect(() => {
+    if (!user?._id || user.role !== 'driver' || Platform.OS !== 'android') {
+      setOnboardingGatePreChecksDone(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const [saved, stillBatteryOptimized] = await Promise.all([
+        loadOnboardingFlags(user._id),
+        // Defaults to "still optimized" (i.e. show the gate) on failure —
+        // the safe direction, since skipping it incorrectly could leave a
+        // driver's app killed in the background without them ever finding
+        // out, while showing it unnecessarily is just a mild annoyance.
+        BatteryOptEnabled().catch(() => true),
+      ]);
+      if (cancelled) return;
+      if (saved.termsAccepted) setTermsAccepted(true);
+      if (saved.profileConfirmed) setProfileConfirmed(true);
+      if (saved.fullScreenIntentDone) setFullScreenIntentDone(true);
+      if (!stillBatteryOptimized) setBatteryOptDone(true);
+      setOnboardingGatePreChecksDone(true);
+    })();
+    return () => { cancelled = true; };
+  }, [user?._id, user?.role]);
 
   if (loading) {
     return (
@@ -144,6 +256,8 @@ function AppNavigator() {
           <Stack.Screen name="DeviceVerification">
             {() => <DeviceVerificationScreen onDone={() => setDeviceVerified(true)} />}
           </Stack.Screen>
+          {incomingTripScreen}
+          {driverDashboardScreen}
         </Stack.Navigator>
       );
     }
@@ -161,6 +275,18 @@ function AppNavigator() {
       );
     }
 
+    // Wait for the persisted-flags read + live BatteryOptEnabled() check
+    // above — otherwise the gates below would briefly evaluate against
+    // their useState() defaults and flash before the real values arrive
+    // a tick later.
+    if (!onboardingGatePreChecksDone) {
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0a0f1e' }}>
+          <ActivityIndicator size="large" color="#10b981" />
+        </View>
+      );
+    }
+
     const permissionsGranted =
       permissionsConfirmed || (cameraPermission?.granted && locationPermission?.granted);
 
@@ -170,6 +296,8 @@ function AppNavigator() {
           <Stack.Screen name="Permissions">
             {() => <PermissionsScreen onDone={() => setPermissionsConfirmed(true)} />}
           </Stack.Screen>
+          {incomingTripScreen}
+          {driverDashboardScreen}
         </Stack.Navigator>
       );
     }
@@ -180,6 +308,8 @@ function AppNavigator() {
           <Stack.Screen name="BatteryOptimization">
             {() => <BatteryOptimizationScreen onDone={() => setBatteryOptDone(true)} />}
           </Stack.Screen>
+          {incomingTripScreen}
+          {driverDashboardScreen}
         </Stack.Navigator>
       );
     }
@@ -188,8 +318,13 @@ function AppNavigator() {
       return (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="FullScreenIntentPermission">
-            {() => <FullScreenIntentPermissionScreen onDone={() => setFullScreenIntentDone(true)} />}
+            {() => <FullScreenIntentPermissionScreen onDone={() => {
+              setFullScreenIntentDone(true);
+              saveOnboardingFlag(user._id, 'fullScreenIntentDone', true);
+            }} />}
           </Stack.Screen>
+          {incomingTripScreen}
+          {driverDashboardScreen}
         </Stack.Navigator>
       );
     }
@@ -198,8 +333,13 @@ function AppNavigator() {
       return (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Terms">
-            {() => <TermsScreen onDone={() => setTermsAccepted(true)} />}
+            {() => <TermsScreen onDone={() => {
+              setTermsAccepted(true);
+              saveOnboardingFlag(user._id, 'termsAccepted', true);
+            }} />}
           </Stack.Screen>
+          {incomingTripScreen}
+          {driverDashboardScreen}
         </Stack.Navigator>
       );
     }
@@ -208,15 +348,20 @@ function AppNavigator() {
       return (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="DriverProfileCheck">
-            {() => <DriverProfileCheckScreen onDone={() => setProfileConfirmed(true)} />}
+            {() => <DriverProfileCheckScreen onDone={() => {
+              setProfileConfirmed(true);
+              saveOnboardingFlag(user._id, 'profileConfirmed', true);
+            }} />}
           </Stack.Screen>
+          {incomingTripScreen}
+          {driverDashboardScreen}
         </Stack.Navigator>
       );
     }
 
     return (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="DriverDashboard" component={DriverDashboard} />
+        {driverDashboardScreen}
         <Stack.Screen name="DriverProfile" component={DriverProfileScreen} />
         <Stack.Screen name="BookingTrip" component={BookingTripScreen} />
         <Stack.Screen name="AmbulancePicker" component={AmbulancePickerScreen} />
@@ -225,11 +370,7 @@ function AppNavigator() {
           component={TripAssignedScreen}
           options={{ presentation: 'modal', gestureEnabled: false }}
         />
-        <Stack.Screen
-          name="IncomingTrip"
-          component={IncomingTripScreen}
-          options={{ presentation: 'modal', gestureEnabled: false }}
-        />
+        {incomingTripScreen}
       </Stack.Navigator>
     );
   }
