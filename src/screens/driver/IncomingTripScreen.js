@@ -12,6 +12,15 @@ function formatAmbulanceType(selectedType) {
   return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 }
 
+// Display-only countdown, purely cosmetic — the actual ring timeout is
+// owned and enforced natively (modules/trip-call's TripConnection.kt,
+// RING_TIMEOUT_MS). No shared constant between Kotlin and JS in this
+// codebase, so these two values have to be kept in sync by hand; if they
+// ever drift, the native timeout (authoritative) still fires onCallEnded
+// correctly, this number would just reach zero slightly early or late.
+const RING_TIMEOUT_SECONDS = 60;
+const URGENT_THRESHOLD_SECONDS = 15;
+
 /**
  * Ola-style full-screen incoming-trip card — reached via the full-screen
  * push path (index.js's FCM background handler displays a notification
@@ -29,6 +38,19 @@ export default function IncomingTripScreen({ navigation, route }) {
     dropAddress, distanceKm, fare, selectedType,
   } = route.params || {};
   const [submitting, setSubmitting] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(RING_TIMEOUT_SECONDS);
+
+  // Ticks down purely for display — dismissal itself still happens via
+  // the native timeout's onCallEnded('timeout') event below, not this
+  // timer reaching zero. Per-mount (not keyed to tripId explicitly): each
+  // stacked IncomingTripScreen instance is its own mount tied to one call
+  // for its whole lifetime, so there's nothing to reset.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSecondsLeft((s) => Math.max(0, s - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Overlapping bookings push a new IncomingTripScreen on top rather than
   // replacing this one (see App.js's navigateToIncomingTrip) — so once
@@ -99,6 +121,10 @@ export default function IncomingTripScreen({ navigation, route }) {
         <Text style={styles.badge}>🚨 NEW TRIP</Text>
         {!!tripNumber && <Text style={styles.tripNumber}>{tripNumber}</Text>}
 
+        <Text style={[styles.countdown, secondsLeft <= URGENT_THRESHOLD_SECONDS && styles.countdownUrgent]}>
+          {secondsLeft}
+        </Text>
+
         <View style={styles.card}>
           <View style={styles.typeChip}>
             <Text style={styles.typeChipTxt}>🚑 {formatAmbulanceType(selectedType)}</Text>
@@ -155,6 +181,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
   },
   tripNumber: { color: '#6b7280', fontSize: 13, fontWeight: '600', textAlign: 'center', marginTop: 4, marginBottom: 20 },
+
+  countdown: { color: '#14B8A6', fontSize: 56, fontWeight: '900', textAlign: 'center', marginTop: -8, marginBottom: 12 },
+  countdownUrgent: { color: '#e8192c' },
 
   card: {
     backgroundColor: '#111827', borderRadius: 20, padding: 24,

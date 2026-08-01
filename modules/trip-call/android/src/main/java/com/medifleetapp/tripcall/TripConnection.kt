@@ -16,7 +16,7 @@ import android.telecom.DisconnectCause
 import android.util.Log
 
 private const val TAG = "TripConnection"
-private const val RING_TIMEOUT_MS = 30_000L
+private const val RING_TIMEOUT_MS = 60_000L
 
 /**
  * Represents one in-flight incoming trip "call". Ringtone/vibration and the
