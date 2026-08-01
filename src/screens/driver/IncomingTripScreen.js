@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, ScrollView } from 'react-native';
+import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from 'react-native-maps';
+import * as Location from 'expo-location';
 import { acceptTrip, rejectTrip } from '../../utils/tripResponse';
+import { getRouteInfo } from '../../utils/routeUtils';
+import SlideToAccept from '../../components/SlideToAccept';
 import * as TripCall from 'trip-call';
 
 // Same formatter as TripAssignedScreen.js — selectedType is a raw Pricing
@@ -21,6 +25,21 @@ function formatAmbulanceType(selectedType) {
 const RING_TIMEOUT_SECONDS = 60;
 const URGENT_THRESHOLD_SECONDS = 15;
 
+// Centers on the midpoint of driver + pickup with padding around whichever
+// is further apart — same "just big enough to show both" approach as
+// DriverDashboard's own map region, minus its ref/fitToCoordinates timing
+// dance, since this screen only ever needs a static, non-interactive view.
+function regionForPoints(a, b) {
+  const latitudeDelta = Math.max(0.01, Math.abs(a.latitude - b.latitude) * 1.8);
+  const longitudeDelta = Math.max(0.01, Math.abs(a.longitude - b.longitude) * 1.8);
+  return {
+    latitude: (a.latitude + b.latitude) / 2,
+    longitude: (a.longitude + b.longitude) / 2,
+    latitudeDelta,
+    longitudeDelta,
+  };
+}
+
 /**
  * Ola-style full-screen incoming-trip card — reached via the full-screen
  * push path (index.js's FCM background handler displays a notification
@@ -34,11 +53,54 @@ const URGENT_THRESHOLD_SECONDS = 15;
  */
 export default function IncomingTripScreen({ navigation, route }) {
   const {
-    tripId, tripNumber, patientName, pickupAddress,
+    tripId, tripNumber, patientName, pickupAddress, pickupLat, pickupLng,
     dropAddress, distanceKm, fare, selectedType,
   } = route.params || {};
   const [submitting, setSubmitting] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(RING_TIMEOUT_SECONDS);
+  const [driverLoc, setDriverLoc] = useState(null);
+  const [routeInfo, setRouteInfo] = useState(null); // { distanceKm, durationSec, coords }
+
+  // pickupLat/pickupLng arrive as strings (FCM data payloads are string-only
+  // — see utils/fcmService.js) and are empty strings, not absent, on an
+  // older/test payload that predates this field. A missing/malformed
+  // coordinate just means no map — the address text below still shows
+  // regardless, same as before this feature existed.
+  const pickupCoords = (() => {
+    const lat = Number(pickupLat);
+    const lng = Number(pickupLng);
+    return pickupLat && pickupLng && !Number.isNaN(lat) && !Number.isNaN(lng)
+      ? { latitude: lat, longitude: lng }
+      : null;
+  })();
+
+  // Map/route are enhancements layered on top of the core accept/reject
+  // flow, never allowed to block it — every failure path here is silent,
+  // matching routeUtils.getRouteInfo's own "return null on any failure"
+  // contract. Only checks the already-granted permission (this screen can
+  // appear mid-ring on top of a locked/backgrounded app; firing a NEW
+  // permission prompt here would be jarring, and every driver already has
+  // to grant location during onboarding before they can go on duty at all).
+  useEffect(() => {
+    if (!pickupCoords) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (cancelled) return;
+        const from = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+        setDriverLoc(from);
+        const info = await getRouteInfo(from, pickupCoords);
+        if (!cancelled && info) setRouteInfo(info);
+      } catch (err) {
+        // Silent — see comment above.
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Ticks down purely for display — dismissal itself still happens via
   // the native timeout's onCallEnded('timeout') event below, not this
@@ -125,6 +187,40 @@ export default function IncomingTripScreen({ navigation, route }) {
           {secondsLeft}
         </Text>
 
+        {pickupCoords && driverLoc && (
+          <View style={styles.mapContainer}>
+            <MapView
+              style={StyleSheet.absoluteFill}
+              provider={PROVIDER_GOOGLE}
+              region={regionForPoints(driverLoc, pickupCoords)}
+              scrollEnabled={false}
+              zoomEnabled={false}
+              pitchEnabled={false}
+              rotateEnabled={false}
+              showsCompass={false}
+              toolbarEnabled={false}
+            >
+              <Marker coordinate={driverLoc} anchor={{ x: 0.5, y: 0.5 }} flat>
+                <View style={styles.driverMarker}>
+                  <Text style={{ fontSize: 16 }}>🚑</Text>
+                </View>
+              </Marker>
+              <Marker coordinate={pickupCoords} pinColor="#14B8A6" />
+              {routeInfo?.coords?.length > 1 && (
+                <Polyline coordinates={routeInfo.coords} strokeColor="#14B8A6" strokeWidth={4} />
+              )}
+            </MapView>
+            {routeInfo && (
+              <View style={styles.routeBadge}>
+                <Text style={styles.routeBadgeText}>
+                  {routeInfo.distanceKm.toFixed(1)} km
+                  {routeInfo.durationSec != null ? `  ·  ${Math.max(1, Math.round(routeInfo.durationSec / 60))} min` : ''}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
         <View style={styles.card}>
           <View style={styles.typeChip}>
             <Text style={styles.typeChipTxt}>🚑 {formatAmbulanceType(selectedType)}</Text>
@@ -151,20 +247,14 @@ export default function IncomingTripScreen({ navigation, route }) {
           </View>
         </View>
 
-        <View style={styles.btnRow}>
+        <View style={styles.actionsContainer}>
+          <SlideToAccept onAccept={handleAccept} disabled={submitting} />
           <TouchableOpacity
-            style={[styles.btn, styles.rejectBtn]}
+            style={styles.rejectBtn}
             onPress={handleReject}
             disabled={submitting}
           >
-            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>✕ Reject</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.btn, styles.acceptBtn]}
-            onPress={handleAccept}
-            disabled={submitting}
-          >
-            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>✓ Accept</Text>}
+            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.rejectBtnText}>✕ Reject</Text>}
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -173,17 +263,33 @@ export default function IncomingTripScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0f1e' },
+  container: { flex: 1, backgroundColor: '#0F172A' },
   scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
 
   badge: {
-    color: '#e8192c', fontSize: 22, fontWeight: '900', textAlign: 'center',
+    color: '#e8192c', fontSize: 24, fontWeight: '900', textAlign: 'center',
     letterSpacing: 1.5,
   },
-  tripNumber: { color: '#6b7280', fontSize: 13, fontWeight: '600', textAlign: 'center', marginTop: 4, marginBottom: 20 },
+  tripNumber: { color: '#9ca3af', fontSize: 14, fontWeight: '600', textAlign: 'center', marginTop: 4, marginBottom: 16 },
 
-  countdown: { color: '#14B8A6', fontSize: 56, fontWeight: '900', textAlign: 'center', marginTop: -8, marginBottom: 12 },
+  countdown: { color: '#14B8A6', fontSize: 60, fontWeight: '900', textAlign: 'center', marginTop: -8, marginBottom: 12 },
   countdownUrgent: { color: '#e8192c' },
+
+  mapContainer: {
+    height: 180, borderRadius: 20, overflow: 'hidden', marginBottom: 16,
+    borderWidth: 1, borderColor: 'rgba(20,184,166,0.4)',
+  },
+  driverMarker: {
+    width: 30, height: 30, borderRadius: 15, backgroundColor: '#111827',
+    borderWidth: 2, borderColor: '#14B8A6', alignItems: 'center', justifyContent: 'center',
+  },
+  routeBadge: {
+    position: 'absolute', bottom: 10, alignSelf: 'center',
+    backgroundColor: 'rgba(15,23,42,0.9)', borderRadius: 20,
+    paddingVertical: 8, paddingHorizontal: 18,
+    borderWidth: 1, borderColor: 'rgba(20,184,166,0.5)',
+  },
+  routeBadgeText: { color: '#fff', fontSize: 16, fontWeight: '800' },
 
   card: {
     backgroundColor: '#111827', borderRadius: 20, padding: 24,
@@ -194,18 +300,21 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(20,184,166,0.4)',
     borderRadius: 20, paddingVertical: 6, paddingHorizontal: 14, marginBottom: 8,
   },
-  typeChipTxt: { color: '#14B8A6', fontSize: 13, fontWeight: '800' },
+  typeChipTxt: { color: '#14B8A6', fontSize: 14, fontWeight: '800' },
 
-  label: { color: '#9ca3af', fontSize: 12, marginTop: 14, textTransform: 'uppercase', letterSpacing: 0.5 },
-  value: { color: '#fff', fontSize: 17, fontWeight: '700', marginTop: 4 },
-  fareValue: { color: '#14B8A6', fontSize: 24, fontWeight: '900', marginTop: 4 },
+  label: { color: '#9ca3af', fontSize: 13, marginTop: 16, textTransform: 'uppercase', letterSpacing: 0.5 },
+  value: { color: '#fff', fontSize: 20, fontWeight: '700', marginTop: 4 },
+  fareValue: { color: '#14B8A6', fontSize: 28, fontWeight: '900', marginTop: 4 },
 
   row2: { flexDirection: 'row', gap: 20, marginTop: 4 },
   col: { flex: 1 },
 
-  btnRow: { flexDirection: 'row', gap: 14, marginTop: 28 },
-  btn: { flex: 1, paddingVertical: 20, borderRadius: 16, alignItems: 'center' },
-  rejectBtn: { backgroundColor: '#e8192c' },
-  acceptBtn: { backgroundColor: '#14B8A6' },
-  btnText: { color: '#fff', fontWeight: '900', fontSize: 18 },
+  // Slide-to-accept is the full-width primary action; Reject stays a
+  // normal, smaller, secondary button below it — Ola/Uber-style weighting,
+  // and it keeps the slide track wide enough for a meaningful drag distance.
+  actionsContainer: { gap: 14, marginTop: 28 },
+  rejectBtn: {
+    backgroundColor: '#e8192c', paddingVertical: 16, borderRadius: 16, alignItems: 'center',
+  },
+  rejectBtnText: { color: '#fff', fontWeight: '900', fontSize: 17 },
 });
