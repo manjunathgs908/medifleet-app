@@ -3,9 +3,12 @@ package com.medifleetapp.tripcall
 import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -66,7 +69,15 @@ class TripCallModule : Module(), TripCallListener {
     // data: flat string map — same payload shape the full-screen
     // notification path already uses (tripId, tripNumber, patientName,
     // pickupAddress, dropAddress, distanceKm, fare, selectedType).
-    AsyncFunction("startIncomingCall") { data: Map<String, String> ->
+    // Returns whether Telecom actually created the connection — not
+    // fire-and-forget. addNewIncomingCall() itself returns void and tells
+    // us nothing; this waits for TripConnectionService's own native
+    // onCreateIncomingConnection/onCreateIncomingConnectionFailed callback
+    // (see TripCallBridge.awaitConnectionOutcome), entirely native-side,
+    // so it works correctly even when called from a headless background-
+    // task bridge, unlike the onIncomingCall JS event (see
+    // getLaunchCallDataAsync's comment below).
+    AsyncFunction("startIncomingCall") { data: Map<String, String>, promise: Promise ->
       val callExtras = Bundle()
       for ((key, value) in data) {
         callExtras.putString(key, value)
@@ -80,6 +91,47 @@ class TripCallModule : Module(), TripCallListener {
       val extras = Bundle(callExtras)
       extras.putBundle(TelecomManager.EXTRA_INCOMING_CALL_EXTRAS, Bundle(callExtras))
 
+      val tripId = data["tripId"]
+      if (tripId == null) {
+        // No tripId to key the handshake on — index.js never calls this
+        // without one in practice (it returns early otherwise), so this
+        // is a defensive fallback, not the expected path. Preserve the
+        // old fire-and-forget behavior rather than guessing at an outcome.
+        telecomManager.addNewIncomingCall(phoneAccountHandle, extras)
+        promise.resolve(false)
+        return@AsyncFunction
+      }
+
+      // Plain Handler timeout + a resolved guard, not coroutines — this
+      // Expo Modules Kotlin version's AsyncFunction lambda isn't a
+      // suspend context (confirmed: withTimeoutOrNull/
+      // suspendCancellableCoroutine fail to compile here), and the
+      // Promise-parameter form is the pattern expo-modules-core's own
+      // NativeModulesProxyModule.kt uses for exactly this shape.
+      val handler = Handler(Looper.getMainLooper())
+      var resolved = false
+
+      val timeoutRunnable = Runnable {
+        if (!resolved) {
+          resolved = true
+          // Clean up the pending entry so a late-arriving Telecom callback
+          // (OEM quirk, slow binder) doesn't leave a stale closure sitting
+          // in the map forever. Safe even if a callback races in right at
+          // this boundary — resolveConnectionOutcome no-ops cleanly either way.
+          TripCallBridge.resolveConnectionOutcome(tripId, false)
+          promise.resolve(false)
+        }
+      }
+
+      TripCallBridge.awaitConnectionOutcome(tripId) { success ->
+        if (!resolved) {
+          resolved = true
+          handler.removeCallbacks(timeoutRunnable)
+          promise.resolve(success)
+        }
+      }
+
+      handler.postDelayed(timeoutRunnable, 3000L)
       telecomManager.addNewIncomingCall(phoneAccountHandle, extras)
     }
 

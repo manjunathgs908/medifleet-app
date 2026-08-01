@@ -46,6 +46,7 @@ class TripConnectionService : ConnectionService() {
     val tripId = extras.getString("tripId")
     if (tripId != null) {
       TripCallBridge.registerConnection(tripId, connection)
+      TripCallBridge.resolveConnectionOutcome(tripId, true)
     } else {
       // Shouldn't happen — TripCallModule.startIncomingCall's caller
       // (index.js's handleTripCallMessage) never calls it without a
@@ -67,6 +68,9 @@ class TripConnectionService : ConnectionService() {
     request: ConnectionRequest?
   ) {
     Log.e(TAG, "onCreateIncomingConnectionFailed — Telecom framework rejected the incoming call request.")
+    val rawExtras = request?.extras ?: Bundle()
+    val extras = rawExtras.getBundle(TelecomManager.EXTRA_INCOMING_CALL_EXTRAS) ?: rawExtras
+    extras.getString("tripId")?.let { TripCallBridge.resolveConnectionOutcome(it, false) }
   }
 
   private fun launchIncomingCallActivity(extras: Bundle) {

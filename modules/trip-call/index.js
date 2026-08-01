@@ -28,8 +28,11 @@ export async function registerPhoneAccountAsync() {
 // as the ConnectionRequest's extras, and back out again on the
 // 'onIncomingCall' event.
 export async function startIncomingCall(data) {
-  if (!NativeTripCall) return;
-  await NativeTripCall.startIncomingCall(data || {});
+  if (!NativeTripCall) return false;
+  // A real signal now, not fire-and-forget — see TripCallModule.kt's
+  // native-side wait on TripConnectionService's own success/failure
+  // callback. true only when Telecom actually created the connection.
+  return await NativeTripCall.startIncomingCall(data || {});
 }
 
 // Tells the native Connection the driver accepted — stops ringing/

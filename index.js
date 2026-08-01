@@ -128,16 +128,21 @@ async function handleTripCallMessage(rawData, source) {
   // Primary path: self-managed Telecom ConnectionService — rings/wakes
   // the device and opens the incoming-call UI independent of Android's
   // per-app full-screen-intent authorization gate (see modules/trip-call).
+  let telecomCallStarted = false;
   try {
-    await TripCall.startIncomingCall(payload);
+    telecomCallStarted = await TripCall.startIncomingCall(payload);
   } catch (err) {
     console.log('[notif-task] Could not start native incoming call:', err?.message);
   }
 
-  // Fallback: notify-kit full-screen notification. Kept alongside the
-  // ConnectionService path (not replaced) — if the Telecom call for any
-  // reason doesn't surface a UI (OEM quirk, PhoneAccount not yet
-  // registered on this launch), the driver still gets the notification.
+  // Fallback: notify-kit full-screen notification — only when Telecom
+  // confirmed it did NOT create the connection (native-side confirmation,
+  // not a JS event race — see modules/trip-call). Previously ran
+  // unconditionally, which is why every booking showed both prompts and
+  // the driver had to reject twice; a failed/timed-out native call must
+  // still never mean silence, which is why this stays as a real fallback
+  // rather than being removed outright.
+  if (telecomCallStarted) return;
   try {
     await displayFullScreenTripCard({ data: payload });
   } catch (err) {
