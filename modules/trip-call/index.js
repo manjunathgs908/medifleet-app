@@ -34,18 +34,30 @@ export async function startIncomingCall(data) {
 
 // Tells the native Connection the driver accepted — stops ringing/
 // vibration and moves the call to STATE_ACTIVE. Call this *in addition to*
-// the existing acceptTrip() API call, not instead of it.
-export async function answerCall() {
+// the existing acceptTrip() API call, not instead of it. tripId selects
+// which native Connection to act on (TripCallBridge tracks them by tripId,
+// not a single "current" reference — see its own comment for why that
+// broke Accept/Reject when more than one connection existed at once).
+export async function answerCall(tripId) {
   if (!NativeTripCall) return;
-  await NativeTripCall.answerCall();
+  await NativeTripCall.answerCall(tripId);
 }
 
 // Tells the native Connection the driver declined — stops ringing/
 // vibration and disconnects. Call this *in addition to* the existing
 // rejectTrip() API call, not instead of it.
-export async function rejectCall() {
+export async function rejectCall(tripId) {
   if (!NativeTripCall) return;
-  await NativeTripCall.rejectCall();
+  await NativeTripCall.rejectCall(tripId);
+}
+
+// Destroys an answered call's Connection — call this once the trip itself
+// completes (wired into DriverDashboard.js's completeTrip()). Answered
+// calls are deliberately left ACTIVE by answerCall() rather than destroyed
+// immediately, so without this they'd accumulate in Telecom forever.
+export async function endCall(tripId) {
+  if (!NativeTripCall) return;
+  await NativeTripCall.endCall(tripId);
 }
 
 // Cold-start fallback — reads the trip data TripConnectionService put on

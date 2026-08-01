@@ -45,6 +45,11 @@ class TripConnection(
   val tripData: Bundle,
 ) : Connection() {
 
+  // Identifies this connection in TripCallBridge's map — every payload
+  // this module ever receives is required to have a tripId (see
+  // index.js's handleTripCallMessage, which returns early without one).
+  val tripId: String? = tripData.getString("tripId")
+
   private val mainHandler = Handler(Looper.getMainLooper())
   private var ringtone: Ringtone? = null
   private var vibrator: Vibrator? = null
@@ -87,15 +92,21 @@ class TripConnection(
     setActive()
     TripCallBridge.emitCallEnded("answered")
     // Deliberately NOT calling endCall()/destroy() here — an active call
-    // stays as the current connection until the app is done with it (the
-    // trip response flow continues in DriverDashboard); TripCallModule.
-    // answerCall() is responsible for the connection's lifecycle from
-    // this point on, not this class.
+    // stays reachable (by tripId, in TripCallBridge's map) until the trip
+    // itself completes; TripCallModule.endCall(tripId) is what destroys it
+    // then (wired into DriverDashboard.js's completeTrip()).
   }
 
   fun performReject() {
     if (ended) return
     endCall(DisconnectCause(DisconnectCause.REJECTED), "rejected")
+  }
+
+  // Called from TripCallModule.endCall(tripId) once the trip completes —
+  // the only way an answered/ACTIVE call ever gets destroyed, since
+  // performAnswer() deliberately leaves it alive.
+  fun performEnd() {
+    endCall(DisconnectCause(DisconnectCause.LOCAL), "ended")
   }
 
   private fun endCall(cause: DisconnectCause, reason: String) {
@@ -106,9 +117,7 @@ class TripConnection(
     setDisconnected(cause)
     destroy()
     TripCallBridge.emitCallEnded(reason)
-    if (TripCallBridge.currentConnection === this) {
-      TripCallBridge.currentConnection = null
-    }
+    tripId?.let { TripCallBridge.unregisterConnection(it) }
   }
 
   // ── Ringtone + vibration ──────────────────────────────────────────────

@@ -83,12 +83,24 @@ class TripCallModule : Module(), TripCallListener {
       telecomManager.addNewIncomingCall(phoneAccountHandle, extras)
     }
 
-    AsyncFunction("answerCall") {
-      TripCallBridge.currentConnection?.performAnswer()
+    // tripId identifies which Connection to act on (TripCallBridge tracks
+    // them in a Map, not a single reference — see its own comment for why:
+    // a single mutable "current" connection meant Accept/Reject could act
+    // on the wrong call whenever more than one existed at once).
+    AsyncFunction("answerCall") { tripId: String ->
+      TripCallBridge.getConnection(tripId)?.performAnswer()
     }
 
-    AsyncFunction("rejectCall") {
-      TripCallBridge.currentConnection?.performReject()
+    AsyncFunction("rejectCall") { tripId: String ->
+      TripCallBridge.getConnection(tripId)?.performReject()
+    }
+
+    // Called once the trip itself completes (DriverDashboard.js's
+    // completeTrip()) — the only thing that ever destroys an answered
+    // call's Connection, since performAnswer() deliberately leaves it
+    // ACTIVE rather than destroying it immediately.
+    AsyncFunction("endCall") { tripId: String ->
+      TripCallBridge.getConnection(tripId)?.performEnd()
     }
 
     // Cold-start fallback — when the app was fully killed,

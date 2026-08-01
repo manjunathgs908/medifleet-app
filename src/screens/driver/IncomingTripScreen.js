@@ -48,7 +48,7 @@ export default function IncomingTripScreen({ navigation, route }) {
   async function handleAccept() {
     setSubmitting(true);
     try {
-      TripCall.answerCall();
+      await TripCall.answerCall(tripId);
       const confirmedTrip = await acceptTrip(tripId);
       navigation.replace('DriverDashboard', { confirmedTrip });
     } catch (e) {
@@ -61,7 +61,7 @@ export default function IncomingTripScreen({ navigation, route }) {
   async function handleReject() {
     setSubmitting(true);
     try {
-      TripCall.rejectCall();
+      await TripCall.rejectCall(tripId);
       await rejectTrip(tripId);
     } catch (e) {
       Alert.alert('Error', e.response?.data?.message || 'Could not decline the trip, but you can still go back.');

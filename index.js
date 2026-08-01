@@ -31,7 +31,7 @@ async function displayFullScreenTripCard(remoteMessage) {
     name: 'Trip Alerts',
     importance: AndroidImportance.HIGH,
     sound: 'default',
-    vibrationPattern: [0, 250, 250, 250],
+    vibrationPattern: [250, 250, 250, 250],
     vibration: true,
   });
 

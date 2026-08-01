@@ -11,6 +11,7 @@ import { getDeviceId, checkInternet } from '../../utils/device';
 import { getRouteInfo } from '../../utils/routeUtils';
 import { getCachedPushToken, refreshPushToken } from '../../utils/pushToken';
 import { getCachedFcmToken, refreshFcmToken } from '../../utils/fcmToken';
+import * as TripCall from 'trip-call';
 
 // e.g. "bls_tempo" -> "BLS TEMPO", "dead-body" -> "DEAD BODY" — same
 // word-splitting TripAssignedScreen.js's formatAmbulanceType uses,
@@ -602,6 +603,16 @@ export default function DriverDashboard({ navigation, route }) {
               await tripsApi.complete(activeTrip._id, {
                 actualDistanceKm: Number(distanceAccumRef.current.toFixed(2)),
               });
+              // Releases the answered call's native Connection — without
+              // this it stays ACTIVE in Telecom forever (performAnswer()
+              // deliberately never destroys it; this is the only place
+              // that does). Trip already completed server-side above, so a
+              // native failure here must never block the success UX.
+              try {
+                await TripCall.endCall(String(activeTrip._id));
+              } catch (callErr) {
+                console.log('[trip-call] Could not end call:', callErr?.message);
+              }
               distanceAccumRef.current = 0;
               lastFixRef.current = null;
               setActiveTrip(null);

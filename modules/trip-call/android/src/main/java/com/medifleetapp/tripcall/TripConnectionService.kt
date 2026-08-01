@@ -42,7 +42,18 @@ class TripConnectionService : ConnectionService() {
     val extras = rawExtras.getBundle(TelecomManager.EXTRA_INCOMING_CALL_EXTRAS) ?: rawExtras
 
     val connection = TripConnection(applicationContext, extras)
-    TripCallBridge.currentConnection = connection
+
+    val tripId = extras.getString("tripId")
+    if (tripId != null) {
+      TripCallBridge.registerConnection(tripId, connection)
+    } else {
+      // Shouldn't happen — TripCallModule.startIncomingCall's caller
+      // (index.js's handleTripCallMessage) never calls it without a
+      // tripId — but if it ever does, the call still rings and is
+      // answerable via the OS UI/Bluetooth button; it's just unreachable
+      // from TripCall.answerCall/rejectCall/endCall's JS API.
+      Log.e(TAG, "Incoming call extras had no tripId — connection won't be reachable from JS.")
+    }
 
     launchIncomingCallActivity(extras)
     TripCallBridge.emitIncomingCall(extras)
