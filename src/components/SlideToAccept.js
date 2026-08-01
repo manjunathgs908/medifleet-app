@@ -23,17 +23,31 @@ export default function SlideToAccept({ onAccept, disabled, label = 'Slide to Ac
 
   const maxDrag = Math.max(0, trackWidth - THUMB_SIZE - TRACK_PADDING * 2);
 
+  // PanResponder.create(...) below only runs once -- useRef's initializer
+  // is never re-evaluated on later renders -- so its handler closures
+  // captured maxDrag/disabled from that FIRST render, before onLayout
+  // ever fired (trackWidth, and therefore maxDrag, was still 0). Every
+  // drag then clamped to Math.min(dx, 0) = 0 forever. Mirroring both into
+  // refs reassigned every render fixes this without recreating the
+  // PanResponder itself, which would risk resetting an in-progress
+  // gesture if trackWidth happened to change mid-drag.
+  const maxDragRef = useRef(maxDrag);
+  maxDragRef.current = maxDrag;
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
+
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => !disabled,
-      onMoveShouldSetPanResponder: () => !disabled,
+      onStartShouldSetPanResponder: () => !disabledRef.current,
+      onMoveShouldSetPanResponder: () => !disabledRef.current,
       onPanResponderMove: (_, gesture) => {
-        const next = Math.min(Math.max(0, gesture.dx), maxDrag);
+        const next = Math.min(Math.max(0, gesture.dx), maxDragRef.current);
         pan.setValue(next);
       },
       onPanResponderRelease: (_, gesture) => {
-        if (maxDrag > 0 && gesture.dx >= maxDrag * ACCEPT_THRESHOLD_RATIO) {
-          Animated.timing(pan, { toValue: maxDrag, duration: 120, useNativeDriver: false }).start(async () => {
+        const currentMaxDrag = maxDragRef.current;
+        if (currentMaxDrag > 0 && gesture.dx >= currentMaxDrag * ACCEPT_THRESHOLD_RATIO) {
+          Animated.timing(pan, { toValue: currentMaxDrag, duration: 120, useNativeDriver: false }).start(async () => {
             try {
               await onAccept();
             } finally {

@@ -50,6 +50,12 @@ function regionForPoints(a, b) {
  * FCM data message, not a full Trip document), but ACCEPT/REJECT call the
  * exact same acceptTrip/rejectTrip helpers TripAssignedScreen.js uses —
  * one implementation of that behavior, not two.
+ *
+ * Fixed-frame layout, not a single scrolling page — an emergency call
+ * screen must fit without scrolling on a normal phone (a driver won't
+ * scroll to find Accept). Only the trip-info block in the middle scrolls,
+ * as a safety net for a very long address on a very small screen; the
+ * header and the accept/reject controls stay pinned in place regardless.
  */
 export default function IncomingTripScreen({ navigation, route }) {
   const {
@@ -104,9 +110,7 @@ export default function IncomingTripScreen({ navigation, route }) {
 
   // Ticks down purely for display — dismissal itself still happens via
   // the native timeout's onCallEnded('timeout') event below, not this
-  // timer reaching zero. Per-mount (not keyed to tripId explicitly): each
-  // stacked IncomingTripScreen instance is its own mount tied to one call
-  // for its whole lifetime, so there's nothing to reset.
+  // timer reaching zero.
   useEffect(() => {
     const interval = setInterval(() => {
       setSecondsLeft((s) => Math.max(0, s - 1));
@@ -136,11 +140,8 @@ export default function IncomingTripScreen({ navigation, route }) {
   // The native Connection's own ring timeout (modules/trip-call) fires
   // independent of this screen — if the driver never taps a button, the OS
   // call ends on its own and this listener dismisses the card to match.
-  // Doesn't fire for 'answered'/'rejected' from OUR OWN button taps below
-  // (this screen has already navigated away by the time those resolve), so
-  // no double-handling. eventTripId is checked against this screen's own
-  // tripId — with calls possibly stacked, a DIFFERENT call timing out
-  // must not dismiss this one.
+  // eventTripId is checked against this screen's own tripId — with calls
+  // possibly stacked, a DIFFERENT call timing out must not dismiss this one.
   useEffect(() => {
     const sub = TripCall.addCallEndedListener(({ tripId: eventTripId, reason }) => {
       if (eventTripId !== tripId) return;
@@ -177,63 +178,75 @@ export default function IncomingTripScreen({ navigation, route }) {
     }
   }
 
+  const isUrgent = secondsLeft <= URGENT_THRESHOLD_SECONDS;
+
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.badge}>🚨 NEW TRIP</Text>
-        {!!tripNumber && <Text style={styles.tripNumber}>{tripNumber}</Text>}
-
-        <Text style={[styles.countdown, secondsLeft <= URGENT_THRESHOLD_SECONDS && styles.countdownUrgent]}>
-          {secondsLeft}
+      {/* Fixed header — badge, trip number, and countdown all on one line */}
+      <View style={styles.header}>
+        <Text style={styles.headerText} numberOfLines={1}>
+          <Text style={styles.badge}>🚨 NEW TRIP</Text>
+          {!!tripNumber && <Text style={styles.tripNumberInline}>  ·  {tripNumber}</Text>}
         </Text>
+        <View style={[styles.countdownPill, isUrgent && styles.countdownPillUrgent]}>
+          <Text style={[styles.countdownPillText, isUrgent && styles.countdownPillTextUrgent]}>
+            {secondsLeft}
+          </Text>
+        </View>
+      </View>
 
-        {pickupCoords && driverLoc && (
-          <View style={styles.mapContainer}>
-            <MapView
-              style={StyleSheet.absoluteFill}
-              provider={PROVIDER_GOOGLE}
-              region={regionForPoints(driverLoc, pickupCoords)}
-              scrollEnabled={false}
-              zoomEnabled={false}
-              pitchEnabled={false}
-              rotateEnabled={false}
-              showsCompass={false}
-              toolbarEnabled={false}
-            >
-              <Marker coordinate={driverLoc} anchor={{ x: 0.5, y: 0.5 }} flat>
-                <View style={styles.driverMarker}>
-                  <Text style={{ fontSize: 16 }}>🚑</Text>
-                </View>
-              </Marker>
-              <Marker coordinate={pickupCoords} pinColor="#14B8A6" />
-              {routeInfo?.coords?.length > 1 && (
-                <Polyline coordinates={routeInfo.coords} strokeColor="#14B8A6" strokeWidth={4} />
-              )}
-            </MapView>
-            {routeInfo && (
-              <View style={styles.routeBadge}>
-                <Text style={styles.routeBadgeText}>
-                  {routeInfo.distanceKm.toFixed(1)} km
-                  {routeInfo.durationSec != null ? `  ·  ${Math.max(1, Math.round(routeInfo.durationSec / 60))} min` : ''}
-                </Text>
+      {/* Fixed, compact map — ~22% of screen height */}
+      {pickupCoords && driverLoc && (
+        <View style={styles.mapContainer}>
+          <MapView
+            style={StyleSheet.absoluteFill}
+            provider={PROVIDER_GOOGLE}
+            region={regionForPoints(driverLoc, pickupCoords)}
+            scrollEnabled={false}
+            zoomEnabled={false}
+            pitchEnabled={false}
+            rotateEnabled={false}
+            showsCompass={false}
+            toolbarEnabled={false}
+          >
+            <Marker coordinate={driverLoc} anchor={{ x: 0.5, y: 0.5 }} flat>
+              <View style={styles.driverMarker}>
+                <Text style={{ fontSize: 14 }}>🚑</Text>
               </View>
+            </Marker>
+            <Marker coordinate={pickupCoords} pinColor="#14B8A6" />
+            {routeInfo?.coords?.length > 1 && (
+              <Polyline coordinates={routeInfo.coords} strokeColor="#14B8A6" strokeWidth={4} />
             )}
-          </View>
-        )}
+          </MapView>
+          {routeInfo && (
+            <View style={styles.routeBadge}>
+              <Text style={styles.routeBadgeText}>
+                {routeInfo.distanceKm.toFixed(1)} km
+                {routeInfo.durationSec != null ? `  ·  ${Math.max(1, Math.round(routeInfo.durationSec / 60))} min` : ''}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
 
+      {/* Only this middle block scrolls, and only if it has to — a safety
+          net for a long address on a small screen, not the primary layout
+          mechanism. */}
+      <ScrollView style={styles.infoScroll} contentContainerStyle={styles.infoContent} showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
           <View style={styles.typeChip}>
             <Text style={styles.typeChipTxt}>🚑 {formatAmbulanceType(selectedType)}</Text>
           </View>
 
           <Text style={styles.label}>Patient</Text>
-          <Text style={styles.value}>{patientName || 'N/A'}</Text>
+          <Text style={styles.value} numberOfLines={1}>{patientName || 'N/A'}</Text>
 
           <Text style={styles.label}>Pickup</Text>
-          <Text style={styles.value}>{pickupAddress || 'N/A'}</Text>
+          <Text style={styles.value} numberOfLines={2} ellipsizeMode="tail">{pickupAddress || 'N/A'}</Text>
 
           <Text style={styles.label}>Drop</Text>
-          <Text style={styles.value}>{dropAddress || 'N/A'}</Text>
+          <Text style={styles.value} numberOfLines={2} ellipsizeMode="tail">{dropAddress || 'N/A'}</Text>
 
           <View style={styles.row2}>
             <View style={styles.col}>
@@ -246,75 +259,86 @@ export default function IncomingTripScreen({ navigation, route }) {
             </View>
           </View>
         </View>
-
-        <View style={styles.actionsContainer}>
-          <SlideToAccept onAccept={handleAccept} disabled={submitting} />
-          <TouchableOpacity
-            style={styles.rejectBtn}
-            onPress={handleReject}
-            disabled={submitting}
-          >
-            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.rejectBtnText}>✕ Reject</Text>}
-          </TouchableOpacity>
-        </View>
       </ScrollView>
+
+      {/* Fixed, pinned bottom — always visible regardless of the info
+          block's content length. */}
+      <View style={styles.actionsContainer}>
+        <SlideToAccept onAccept={handleAccept} disabled={submitting} />
+        <TouchableOpacity
+          style={styles.rejectBtn}
+          onPress={handleReject}
+          disabled={submitting}
+        >
+          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.rejectBtnText}>✕ Reject</Text>}
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F172A' },
-  scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
 
-  badge: {
-    color: '#e8192c', fontSize: 24, fontWeight: '900', textAlign: 'center',
-    letterSpacing: 1.5,
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: 50, paddingHorizontal: 20, paddingBottom: 10, gap: 10,
   },
-  tripNumber: { color: '#9ca3af', fontSize: 14, fontWeight: '600', textAlign: 'center', marginTop: 4, marginBottom: 16 },
+  headerText: { flex: 1 },
+  badge: { color: '#e8192c', fontSize: 16, fontWeight: '900', letterSpacing: 0.5 },
+  tripNumberInline: { color: '#9ca3af', fontSize: 13, fontWeight: '600' },
 
-  countdown: { color: '#14B8A6', fontSize: 60, fontWeight: '900', textAlign: 'center', marginTop: -8, marginBottom: 12 },
-  countdownUrgent: { color: '#e8192c' },
+  countdownPill: {
+    minWidth: 44, height: 44, borderRadius: 22, paddingHorizontal: 8,
+    backgroundColor: 'rgba(20,184,166,0.15)', borderWidth: 2, borderColor: '#14B8A6',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  countdownPillUrgent: { backgroundColor: 'rgba(232,25,44,0.15)', borderColor: '#e8192c' },
+  countdownPillText: { color: '#14B8A6', fontSize: 18, fontWeight: '900' },
+  countdownPillTextUrgent: { color: '#e8192c' },
 
   mapContainer: {
-    height: 180, borderRadius: 20, overflow: 'hidden', marginBottom: 16,
+    height: '22%', marginHorizontal: 20, borderRadius: 16, overflow: 'hidden',
     borderWidth: 1, borderColor: 'rgba(20,184,166,0.4)',
   },
   driverMarker: {
-    width: 30, height: 30, borderRadius: 15, backgroundColor: '#111827',
+    width: 26, height: 26, borderRadius: 13, backgroundColor: '#111827',
     borderWidth: 2, borderColor: '#14B8A6', alignItems: 'center', justifyContent: 'center',
   },
   routeBadge: {
-    position: 'absolute', bottom: 10, alignSelf: 'center',
-    backgroundColor: 'rgba(15,23,42,0.9)', borderRadius: 20,
-    paddingVertical: 8, paddingHorizontal: 18,
+    position: 'absolute', bottom: 8, alignSelf: 'center',
+    backgroundColor: 'rgba(15,23,42,0.9)', borderRadius: 16,
+    paddingVertical: 5, paddingHorizontal: 14,
     borderWidth: 1, borderColor: 'rgba(20,184,166,0.5)',
   },
-  routeBadgeText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  routeBadgeText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+
+  infoScroll: { flex: 1 },
+  infoContent: { padding: 20, paddingBottom: 8 },
 
   card: {
-    backgroundColor: '#111827', borderRadius: 20, padding: 24,
-    borderWidth: 1, borderColor: 'rgba(232,25,44,0.35)', marginTop: 16,
+    backgroundColor: '#111827', borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: 'rgba(232,25,44,0.35)',
   },
   typeChip: {
     alignSelf: 'flex-start', backgroundColor: 'rgba(20,184,166,0.15)',
     borderWidth: 1, borderColor: 'rgba(20,184,166,0.4)',
-    borderRadius: 20, paddingVertical: 6, paddingHorizontal: 14, marginBottom: 8,
+    borderRadius: 20, paddingVertical: 5, paddingHorizontal: 12, marginBottom: 6,
   },
-  typeChipTxt: { color: '#14B8A6', fontSize: 14, fontWeight: '800' },
+  typeChipTxt: { color: '#14B8A6', fontSize: 13, fontWeight: '800' },
 
-  label: { color: '#9ca3af', fontSize: 13, marginTop: 16, textTransform: 'uppercase', letterSpacing: 0.5 },
-  value: { color: '#fff', fontSize: 20, fontWeight: '700', marginTop: 4 },
-  fareValue: { color: '#14B8A6', fontSize: 28, fontWeight: '900', marginTop: 4 },
+  label: { color: '#9ca3af', fontSize: 11, marginTop: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  value: { color: '#fff', fontSize: 16, fontWeight: '700', marginTop: 2 },
+  fareValue: { color: '#14B8A6', fontSize: 20, fontWeight: '900', marginTop: 2 },
 
-  row2: { flexDirection: 'row', gap: 20, marginTop: 4 },
+  row2: { flexDirection: 'row', gap: 20, marginTop: 2 },
   col: { flex: 1 },
 
-  // Slide-to-accept is the full-width primary action; Reject stays a
-  // normal, smaller, secondary button below it — Ola/Uber-style weighting,
-  // and it keeps the slide track wide enough for a meaningful drag distance.
-  actionsContainer: { gap: 14, marginTop: 28 },
-  rejectBtn: {
-    backgroundColor: '#e8192c', paddingVertical: 16, borderRadius: 16, alignItems: 'center',
+  actionsContainer: {
+    gap: 10, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 22,
   },
-  rejectBtnText: { color: '#fff', fontWeight: '900', fontSize: 17 },
+  rejectBtn: {
+    backgroundColor: '#e8192c', paddingVertical: 14, borderRadius: 16, alignItems: 'center',
+  },
+  rejectBtnText: { color: '#fff', fontWeight: '900', fontSize: 16 },
 });
