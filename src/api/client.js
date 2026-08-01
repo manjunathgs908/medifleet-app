@@ -107,6 +107,10 @@ export const assignmentsApi = {
   startDuty: (ambulanceId, deviceId, lat, lng) => api.post('/assignments/start-duty', { ambulanceId, deviceId, lat, lng }),
   endDuty: (lat, lng) => api.post('/assignments/end-duty', { lat, lng }),
   getMyActiveShift: () => api.get('/assignments/my-active'),
+  // Ended shifts only, with the break-adjusted totalWorkingMinutes
+  // endDuty already computed — the same number attendance/salary use, so
+  // My Day never shows a duty-hours figure that disagrees with those.
+  getMyShifts: (params) => api.get('/assignments/my-shifts', { params }),
   // Phase 4 — ambulances a driver can pick from at start-duty.
   getAvailableAmbulances: () => api.get('/assignments/available-ambulances'),
   // Phase 6 — owner-facing live fleet overview (protectOwner-gated).

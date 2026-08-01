@@ -28,6 +28,9 @@ import BookingTripScreen from './src/screens/driver/BookingTripScreen';
 import TripAssignedScreen from './src/screens/driver/TripAssignedScreen';
 import IncomingTripScreen from './src/screens/driver/IncomingTripScreen';
 import AmbulancePickerScreen from './src/screens/driver/AmbulancePickerScreen';
+import TripHistoryScreen from './src/screens/driver/TripHistoryScreen';
+import TripDetailScreen from './src/screens/driver/TripDetailScreen';
+import MyDayScreen from './src/screens/driver/MyDayScreen';
 import UnbindDeviceScreen from './src/screens/owner/UnbindDeviceScreen';
 import OwnerHomeScreen from './src/screens/owner/OwnerHomeScreen';
 import AddAmbulanceScreen from './src/screens/owner/AddAmbulanceScreen';
@@ -365,6 +368,9 @@ function AppNavigator() {
         <Stack.Screen name="DriverProfile" component={DriverProfileScreen} />
         <Stack.Screen name="BookingTrip" component={BookingTripScreen} />
         <Stack.Screen name="AmbulancePicker" component={AmbulancePickerScreen} />
+        <Stack.Screen name="TripHistory" component={TripHistoryScreen} />
+        <Stack.Screen name="TripDetail" component={TripDetailScreen} />
+        <Stack.Screen name="MyDay" component={MyDayScreen} />
         <Stack.Screen
           name="TripAssigned"
           component={TripAssignedScreen}

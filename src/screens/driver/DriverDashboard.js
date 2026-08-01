@@ -1055,13 +1055,13 @@ export default function DriverDashboard({ navigation, route }) {
             <Text style={styles.navIconActive}>🏠</Text>
             <Text style={styles.navLabelActive}>Home</Text>
           </View>
-          <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('Trips', 'Coming soon')}>
+          <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('TripHistory')}>
             <Text style={styles.navIcon}>📋</Text>
             <Text style={styles.navLabel}>Trips</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('Earnings', 'Coming soon')}>
+          <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('MyDay')}>
             <Text style={styles.navIcon}>💰</Text>
-            <Text style={styles.navLabel}>Earnings</Text>
+            <Text style={styles.navLabel}>My Day</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('Messages', 'Coming soon')}>
             <Text style={styles.navIcon}>💬</Text>
