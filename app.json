@@ -25,7 +25,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#e8192c"
+        "backgroundColor": "#1677E8"
       },
       "package": "com.medifleetapp.medifleetapp",
       "googleServicesFile": "./google-services.json",
@@ -66,8 +66,8 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
-          "color": "#10b981"
+          "icon": "./assets/notification-icon.png",
+          "color": "#1677E8"
         }
       ],
       [
