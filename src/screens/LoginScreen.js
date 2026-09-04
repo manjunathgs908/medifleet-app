@@ -21,7 +21,6 @@ export default function LoginScreen() {
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
-  const [testOtp, setTestOtp] = useState(null);
 
   // Brand-new phone (no Owner, no active driver) registers as a new
   // Owner — same "name required" flow ownerController.sendOtp already
@@ -44,12 +43,6 @@ export default function LoginScreen() {
     try {
       const { data } = await unifiedAuthApi.sendOtp(phone.trim(), needsName ? name.trim() : undefined);
       setOtpSent(true);
-      if (data?.testOtp) {
-        setTestOtp(data.testOtp);
-        setOtp(data.testOtp);
-      } else {
-        setTestOtp(null);
-      }
     } catch (e) {
       const message = e.response?.data?.message || 'Could not send OTP. Please try again.';
       if (!needsName && /name is required/i.test(message)) {
@@ -63,8 +56,8 @@ export default function LoginScreen() {
   };
 
   const handleVerifyOtp = async () => {
-    if (otp.length !== 4) {
-      Alert.alert('Error', 'Please enter the 4-digit OTP.');
+    if (otp.length !== 6) {
+      Alert.alert('Error', 'Please enter the 6-digit OTP.');
       return;
     }
     setLoading(true);
@@ -88,7 +81,6 @@ export default function LoginScreen() {
   const handleChangePhone = () => {
     setOtpSent(false);
     setOtp('');
-    setTestOtp(null);
     setNeedsName(false);
     setName('');
   };
@@ -138,11 +130,8 @@ export default function LoginScreen() {
 
         {otpSent && (
           <>
-            <Text style={styles.label}>4-Digit OTP</Text>
-            {testOtp && (
-              <Text style={styles.testOtpBanner}>🧪 Test mode — OTP auto-filled: {testOtp}</Text>
-            )}
-            <PinInput length={4} value={otp} onChange={setOtp} autoFocus />
+            <Text style={styles.label}>6-Digit OTP</Text>
+            <PinInput length={6} value={otp} onChange={setOtp} autoFocus />
           </>
         )}
 
@@ -243,17 +232,5 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     fontSize: 13,
     lineHeight: 19,
-  },
-  testOtpBanner: {
-    backgroundColor: 'rgba(16,185,129,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(16,185,129,0.35)',
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 12,
-    color: '#10b981',
-    fontSize: 12.5,
-    fontWeight: 'bold',
-    textAlign: 'center',
   },
 });
