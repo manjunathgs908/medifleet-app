@@ -156,7 +156,8 @@ export const ownerAuthApi = {
 // filtered by ?approvalStatus= for the Pending Drivers view.
 export const ownerDriverApi = {
   list       : (params) => api.get('/driver-auth', { params }),
-  register   : (name, phone) => api.post('/driver-auth/register', { name, phone }),
+  register   : (name, phone, shiftHours) => api.post('/driver-auth/register', { name, phone, shiftHours }),
+  setShiftHours: (id, shiftHours) => api.put(`/driver-auth/${id}/shift-hours`, { shiftHours }),
   unbindDevice: (id) => api.put(`/driver-auth/${id}/unbind-device`),
   approve    : (id) => api.put(`/driver-auth/${id}/approve`),
   reject     : (id, reason) => api.put(`/driver-auth/${id}/reject`, { reason }),
@@ -170,4 +171,11 @@ export const ambulancesApi = {
   update        : (id, data) => api.put(`/ambulances/${id}`, data),
   uploadDocument: (id, docType, fields) => api.put(`/ambulances/${id}/document`, { docType, ...fields }),
   addPhoto      : (id, base64) => api.post(`/ambulances/${id}/photos`, { base64 }),
+
+  // The owner's roster decision — who usually drives this ambulance.
+  // Distinct from assignedDriver, which the duty system owns and which
+  // PUT /ambulances/:id refuses to accept.
+  setDefaultDriver  : (id, driverId, driverLock) =>
+    api.put(`/ambulances/${id}/default-driver`, { driverId, driverLock }),
+  clearDefaultDriver: (id) => api.delete(`/ambulances/${id}/default-driver`),
 };
