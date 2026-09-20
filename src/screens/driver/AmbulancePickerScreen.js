@@ -64,7 +64,17 @@ export default function AmbulancePickerScreen({ navigation, route }) {
         disabled={!!startingId}
       >
         <View style={{ flex: 1 }}>
-          <Text style={styles.regNumber}>{item.registrationNumber}</Text>
+          <View style={styles.regRow}>
+            <Text style={styles.regNumber}>{item.registrationNumber}</Text>
+            {/* isMyDefault is computed per-caller by the backend, not a
+                stored field: it means "your owner rostered you onto this
+                one". The list already arrives with it sorted first. */}
+            {item.isMyDefault && (
+              <View style={styles.mineTag}>
+                <Text style={styles.mineTagTxt}>YOUR AMBULANCE</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.typeLabel}>{item.serviceTypeLabel || item.serviceType}</Text>
         </View>
         {isStarting ? <ActivityIndicator color="#10b981" /> : <Text style={styles.pickTxt}>Select →</Text>}
@@ -115,6 +125,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#111827', borderRadius: 14, padding: 16, marginBottom: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
   },
+  regRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  mineTag: {
+    backgroundColor: 'rgba(16,185,129,0.15)',
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.45)',
+    borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
+  },
+  mineTagTxt: { color: '#10b981', fontSize: 9.5, fontWeight: 'bold', letterSpacing: 0.4 },
   regNumber: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   typeLabel: { color: '#9ca3af', fontSize: 12.5, marginTop: 2 },
   pickTxt: { color: '#10b981', fontSize: 13, fontWeight: 'bold' },
