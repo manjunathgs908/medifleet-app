@@ -133,7 +133,11 @@ export const assignmentsApi = {
 // Owner OTP login (Phase 1 fleet-Owner model, separate from the User-model
 // owner login above) — a different session/token from authApi.login.
 export const ownerAuthApi = {
-  sendOtp: (phone, name) => api.post('/owners/send-otp', { phone, name }),
+  sendOtp: (phone) => api.post('/owners/send-otp', { phone }),
+  // Partner sign-up — the only path that creates an Owner. Two steps: the
+  // code is held server-side against the phone, then spent by register().
+  sendRegistrationOtp: (phone) => api.post('/owners/register/send-otp', { phone }),
+  register: (payload) => api.post('/owners/register', payload),
   verifyOtp: (phone, otp) => api.post('/owners/verify-otp', { phone, otp }),
   // Mints a driver token for the owner's own shadow driver identity —
   // lets a small operator drive their own fleet through the normal

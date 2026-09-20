@@ -10,23 +10,28 @@ import { unifiedAuthApi } from '../api/client';
 
 /**
  * Single phone-only login — no Driver/Owner tab choice. The backend
- * (POST /auth/unified-send-otp, /unified-verify-otp) decides whether
- * this phone is a driver, an existing owner, or brand-new; the app just
- * routes on whatever `user.role` comes back (App.js's existing
- * role-based branching is unaffected by how login happened).
+ * (POST /auth/unified-send-otp, /unified-verify-otp) decides whether this
+ * phone is a driver or an owner; the app routes on whatever `user.role`
+ * comes back (App.js's role branching is unaffected by how login happened).
+ *
+ * WHY THERE IS NO "NOT REGISTERED" RESPONSE TO REACT TO
+ *
+ * send-otp deliberately answers an unknown number exactly as it answers a
+ * known one. Anything else makes it a phone directory: feed it numbers,
+ * keep the ones that come back different. So the app cannot be told whether
+ * a number has an account, and must not try to infer it.
+ *
+ * Register as Partner is therefore always on screen rather than appearing
+ * when the server says "unknown" — it needs no server signal at all. The
+ * "Not registered?" line beside it is a static prompt, not a verdict about
+ * the number typed above.
  */
-export default function LoginScreen() {
+export default function LoginScreen({ navigation }) {
   const { unifiedLogin, deviceKicked, dismissDeviceKicked } = useAuth();
 
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
-
-  // Brand-new phone (no Owner, no active driver) registers as a new
-  // Owner — same "name required" flow ownerController.sendOtp already
-  // had, just reached without picking a tab first.
-  const [needsName, setNeedsName] = useState(false);
-  const [name, setName] = useState('');
 
   const [loading, setLoading] = useState(false);
 
@@ -35,21 +40,12 @@ export default function LoginScreen() {
       Alert.alert('Error', 'Please enter a valid 10-digit phone number.');
       return;
     }
-    if (needsName && !name.trim()) {
-      Alert.alert('Error', 'Please enter your name to register.');
-      return;
-    }
     setLoading(true);
     try {
-      const { data } = await unifiedAuthApi.sendOtp(phone.trim(), needsName ? name.trim() : undefined);
+      await unifiedAuthApi.sendOtp(phone.trim());
       setOtpSent(true);
     } catch (e) {
-      const message = e.response?.data?.message || 'Could not send OTP. Please try again.';
-      if (!needsName && /name is required/i.test(message)) {
-        setNeedsName(true);
-      } else {
-        Alert.alert('Error', message);
-      }
+      Alert.alert('Error', e.response?.data?.message || 'Could not send OTP. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -81,8 +77,6 @@ export default function LoginScreen() {
   const handleChangePhone = () => {
     setOtpSent(false);
     setOtp('');
-    setNeedsName(false);
-    setName('');
   };
 
   return (
@@ -111,22 +105,8 @@ export default function LoginScreen() {
           maxLength={10}
           editable={!otpSent}
           value={phone}
-          onChangeText={(t) => { setPhone(t.replace(/[^0-9]/g, '')); setNeedsName(false); setName(''); }}
+          onChangeText={(t) => setPhone(t.replace(/[^0-9]/g, ''))}
         />
-
-        {needsName && !otpSent && (
-          <>
-            <Text style={styles.label}>New here — what's your name?</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Your Name"
-              placeholderTextColor="#888"
-              value={name}
-              onChangeText={setName}
-              autoFocus
-            />
-          </>
-        )}
 
         {otpSent && (
           <>
@@ -151,6 +131,21 @@ export default function LoginScreen() {
             <Text style={styles.label}>Change phone number</Text>
           </TouchableOpacity>
         )}
+
+        {/* Always visible — see the note at the top of this file. The number
+            already typed is carried across so it is not asked for twice. */}
+        <View style={styles.registerBlock}>
+          <Text style={styles.registerHint}>Not registered?</Text>
+          <TouchableOpacity
+            style={styles.registerButton}
+            onPress={() => navigation.navigate('RegisterPartner', { phone: phone.trim() })}
+          >
+            <Text style={styles.registerButtonText}>Register as Partner</Text>
+          </TouchableOpacity>
+          <Text style={styles.registerNote}>
+            Drivers are added by their fleet owner — ask them to add your number.
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -209,6 +204,31 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  registerBlock: {
+    marginTop: 22,
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: '#1f2937',
+    alignItems: 'center',
+  },
+  registerHint: { color: '#9ca3af', fontSize: 13, marginBottom: 10 },
+  registerButton: {
+    borderWidth: 1,
+    borderColor: '#10b981',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+  },
+  registerButtonText: { color: '#10b981', fontSize: 15, fontWeight: 'bold' },
+  registerNote: {
+    color: '#6b7280',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 10,
+    lineHeight: 16,
   },
   noticeBox: {
     backgroundColor: 'rgba(245,158,11,0.12)',

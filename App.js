@@ -14,6 +14,7 @@ import { BatteryOptEnabled } from 'react-native-battery-optimization-check';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import LoginScreen from './src/screens/LoginScreen';
+import RegisterPartnerScreen from './src/screens/RegisterPartnerScreen';
 import DeviceVerificationScreen from './src/screens/DeviceVerificationScreen';
 import PermissionsScreen from './src/screens/PermissionsScreen';
 import BatteryOptimizationScreen from './src/screens/BatteryOptimizationScreen';
@@ -248,6 +249,9 @@ function AppNavigator() {
     return (
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Login" component={LoginScreen} />
+        {/* Logged-out only. Registration issues no session — the partner
+            comes back to Login once a SaveLife admin approves them. */}
+        <Stack.Screen name="RegisterPartner" component={RegisterPartnerScreen} />
       </Stack.Navigator>
     );
   }

@@ -64,7 +64,16 @@ export const AuthProvider = ({ children }) => {
       const { data } = baseUser?.role === 'owner' ? await ownerAuthApi.getMe() : await authApi.me();
       const fresh = data?.owner || data?.user;
       if (fresh) {
-        const merged = { ...baseUser, ...fresh };
+        // `features` says what this session may see — today
+        // { attendance, salary }, both true only for SaveLife's own drivers
+        // and SaveLife's own Owner. It is resolved server-side because the
+        // app cannot read a driver's Owner, and duplicating the rule in the
+        // client would let the two disagree after one release.
+        //
+        // Only /me returns it; the login response does not. Defaulted to
+        // false so the gap between logging in and the first refresh hides a
+        // feature rather than flashing one that then disappears.
+        const merged = { ...baseUser, ...fresh, features: data?.features || { attendance: false, salary: false } };
         await AsyncStorage.setItem('user', JSON.stringify(merged));
         setUser(merged);
         return merged;
@@ -201,7 +210,14 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, unifiedLogin, deviceKicked, dismissDeviceKicked, refreshUser, startDutyAsOwner, restoreOwnerSession }}>
+    <AuthContext.Provider value={{
+      user, loading, login, logout, unifiedLogin, deviceKicked, dismissDeviceKicked,
+      refreshUser, startDutyAsOwner, restoreOwnerSession,
+      // Convenience mirror of user.features with a safe default, so a screen
+      // can read `features.salary` without guarding for a user that has not
+      // been refreshed yet.
+      features: user?.features || { attendance: false, salary: false },
+    }}>
       {children}
     </AuthContext.Provider>
   );
