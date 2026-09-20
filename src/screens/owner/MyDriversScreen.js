@@ -4,6 +4,11 @@ import {
   ActivityIndicator, RefreshControl, Alert, Image, TextInput,
 } from 'react-native';
 import { ownerDriverApi } from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
+
+// Matches the enum on User.shiftHours. A fixed posting length, not a
+// schedule.
+const SHIFT_HOURS = [8, 12, 24];
 
 const DOC_LABELS = { dl: 'DL', aadhaar: 'Aadhaar', photo: 'Photo' };
 
@@ -18,6 +23,12 @@ const STATUS_STYLES = {
 // 'pending' only); now shows all of them with a status badge, and
 // approve/reject stay available only on the pending ones.
 export default function MyDriversScreen({ navigation }) {
+  // features.attendance is resolved server-side from the owner's own
+  // isPlatformOwner flag. shiftHours exists only to gate the
+  // auto-attendance write, and a partner's drivers never get attendance
+  // rows, so a partner is shown none of this.
+  const { features } = useAuth();
+
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -42,6 +53,22 @@ export default function MyDriversScreen({ navigation }) {
     setRefreshing(true);
     await load();
     setRefreshing(false);
+  };
+
+  const setShiftHours = async (driver, hours) => {
+    setBusyId(driver._id);
+    try {
+      // Tapping the active chip clears it. null is the explicit "not
+      // configured" the backend $unsets — endDuty reads absent as
+      // "skip attendance", and there is no other way back to that state.
+      const next = driver.shiftHours === hours ? null : hours;
+      await ownerDriverApi.setShiftHours(driver._id, next);
+      await load();
+    } catch (e) {
+      Alert.alert('Error', e.response?.data?.message || 'Could not update shift hours.');
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const handleApprove = async (driver) => {
@@ -92,6 +119,48 @@ export default function MyDriversScreen({ navigation }) {
             <Text style={[styles.badgeTxt, { color: status.text }]}>{status.label}</Text>
           </View>
         </View>
+
+        {/* Shift hours — SaveLife fleets only.
+            The warning is the point of this block, not the picker. A
+            driver with no shiftHours works normally and accrues NO
+            attendance, silently; the only existing trace is a console
+            line on the server. Without something on screen, it surfaces
+            at payroll, a month late. */}
+        {features?.attendance && (
+          <View style={styles.shiftBlock}>
+            <View style={styles.shiftHeader}>
+              <Text style={styles.shiftLabel}>Shift hours</Text>
+              {!item.shiftHours && (
+                <View style={styles.warnBadge}>
+                  <Text style={styles.warnBadgeTxt}>NOT SET — NO ATTENDANCE</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.chipRow}>
+              {SHIFT_HOURS.map((h) => {
+                const active = item.shiftHours === h;
+                return (
+                  <TouchableOpacity
+                    key={h}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => setShiftHours(item, h)}
+                    disabled={isBusy}
+                  >
+                    <Text style={[styles.chipTxt, active && styles.chipTxtActive]}>{h}h</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {!item.shiftHours && (
+              <Text style={styles.warnHint}>
+                Duty is still recorded, but no attendance is written and this driver will not
+                appear in payroll.
+              </Text>
+            )}
+          </View>
+        )}
 
         <View style={styles.docRow}>
           {Object.keys(DOC_LABELS).map((docType) => (
@@ -206,6 +275,28 @@ const styles = StyleSheet.create({
   cancelBtnTxt: { color: '#9ca3af', fontSize: 13, fontWeight: 'bold' },
   rejectBtn: { flex: 1, backgroundColor: '#ef4444', borderRadius: 8, paddingVertical: 11, alignItems: 'center' },
   rejectBtnTxt: { color: '#fff', fontSize: 13, fontWeight: 'bold' },
+
+  shiftBlock: {
+    marginTop: 14, paddingTop: 12,
+    borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)',
+  },
+  shiftHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' },
+  shiftLabel: { color: '#9ca3af', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
+  warnBadge: {
+    backgroundColor: 'rgba(245,158,11,0.15)',
+    borderWidth: 1, borderColor: 'rgba(245,158,11,0.45)',
+    borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2,
+  },
+  warnBadgeTxt: { color: '#f59e0b', fontSize: 9, fontWeight: 'bold', letterSpacing: 0.3 },
+  warnHint: { color: '#f59e0b', fontSize: 11, lineHeight: 15, marginTop: 8, opacity: 0.85 },
+  chipRow: { flexDirection: 'row', gap: 8 },
+  chip: {
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', borderRadius: 8,
+    paddingVertical: 8, paddingHorizontal: 16,
+  },
+  chipActive: { borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.12)' },
+  chipTxt: { color: '#9ca3af', fontSize: 13, fontWeight: '600' },
+  chipTxtActive: { color: '#10b981' },
 
   emptyTxt: { color: '#6b7280', fontSize: 14, textAlign: 'center', marginTop: 40 },
 });
