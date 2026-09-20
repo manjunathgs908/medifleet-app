@@ -61,8 +61,17 @@ export default function MyAmbulancesScreen({ navigation }) {
             <Text style={styles.metaDot}>·</Text>
             <Text style={styles.metaTxt}>{docCompleteness(item.documents)}</Text>
           </View>
-          {item.assignedDriver?.name && (
-            <Text style={styles.driverTxt}>🧑‍✈️ {item.assignedDriver.name}</Text>
+          {/* The rostered driver, with a padlock when only they may take
+              it. assignedDriver (who is on duty right now) is left to the
+              detail screen: on a list, one driver name per card that
+              silently changes meaning between "assigned to" and "currently
+              driving" is worse than showing none. */}
+          {item.defaultDriver?.name ? (
+            <Text style={styles.driverTxt}>
+              {item.driverLock === 'locked' ? '🔒' : '🧑‍✈️'} {item.defaultDriver.name}
+            </Text>
+          ) : (
+            <Text style={styles.noDriverTxt}>No driver assigned</Text>
           )}
         </View>
         <View style={[styles.statusBadge, { backgroundColor: `${STATUS_COLORS[item.status] || '#6b7280'}22`, borderColor: `${STATUS_COLORS[item.status] || '#6b7280'}55` }]}>
@@ -121,6 +130,7 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
   metaTxt: { color: '#6b7280', fontSize: 11.5 },
   metaDot: { color: '#374151', fontSize: 11.5 },
+  noDriverTxt: { color: '#6b7280', fontSize: 12, marginTop: 6, fontStyle: 'italic' },
   driverTxt: { color: '#6b7280', fontSize: 11.5, marginTop: 4 },
 
   statusBadge: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 20, borderWidth: 1 },
