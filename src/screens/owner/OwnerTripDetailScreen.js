@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-native';
-import { assignmentsApi } from '../../api/client';
+import { assignmentsApi, callsApi } from '../../api/client';
 
 const REFRESH_INTERVAL_MS = 10000; // matches the driver app's own GPS-ping cadence
 
@@ -33,6 +33,20 @@ export default function OwnerTripDetailScreen({ navigation, route }) {
   }, [load]);
 
   const trip = entry?.activeTrip;
+  const [calling, setCalling] = useState(false);
+
+  const callCustomer = async () => {
+    if (!trip?.id) return;
+    setCalling(true);
+    try {
+      const { data } = await callsApi.callCustomer(trip.id);
+      Alert.alert('Calling Customer', data?.message || 'Your phone will ring shortly — answer it to connect.');
+    } catch (err) {
+      Alert.alert('Error', err?.response?.data?.message || "Couldn't connect the call. Please try again.");
+    } finally {
+      setCalling(false);
+    }
+  };
 
   useEffect(() => {
     if (!loading && entry && !trip && !endedAlertShownRef.current) {
@@ -77,7 +91,17 @@ export default function OwnerTripDetailScreen({ navigation, route }) {
           <View style={styles.card}>
             <Text style={styles.label}>Patient</Text>
             <Text style={styles.value}>{trip.patientName}</Text>
-            <Text style={styles.valueMuted}>📞 {trip.patientPhone}</Text>
+            {/* Masked: the backend never sends a partner the customer's
+                number. Calling goes through Plivo, which rings this phone
+                and connects to the customer from the company number. */}
+            {trip.patientPhoneMasked && <Text style={styles.valueMuted}>📞 {trip.patientPhoneMasked}</Text>}
+            <TouchableOpacity
+              style={[styles.callBtn, calling && { opacity: 0.6 }]}
+              onPress={callCustomer}
+              disabled={calling}
+            >
+              <Text style={styles.callBtnTxt}>{calling ? 'Connecting…' : '📞 Call Customer'}</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.card}>
@@ -142,6 +166,8 @@ const styles = StyleSheet.create({
   label: { color: '#6b7280', fontSize: 11.5, fontWeight: '700', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.4 },
   value: { color: '#fff', fontSize: 15, fontWeight: '600' },
   valueMuted: { color: '#9ca3af', fontSize: 13, marginTop: 4 },
+  callBtn: { marginTop: 12, backgroundColor: 'rgba(16,185,129,0.14)', borderColor: 'rgba(16,185,129,0.4)', borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  callBtnTxt: { color: '#10b981', fontSize: 15, fontWeight: '700' },
 
   emptyTxt: { color: '#6b7280', fontSize: 14, textAlign: 'center', marginTop: 40, paddingHorizontal: 30 },
 });

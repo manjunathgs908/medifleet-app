@@ -6,7 +6,7 @@ import * as Location from 'expo-location';
 import * as Updates from 'expo-updates';
 import { BatteryOptEnabled } from 'react-native-battery-optimization-check';
 import { useAuth } from '../../context/AuthContext';
-import { driverAuthApi, tripsApi, assignmentsApi, authApi, sosApi } from '../../api/client';
+import { driverAuthApi, tripsApi, assignmentsApi, authApi, sosApi, callsApi } from '../../api/client';
 import { getDeviceId, checkInternet } from '../../utils/device';
 import { getRouteInfo } from '../../utils/routeUtils';
 import { getCachedPushToken, refreshPushToken } from '../../utils/pushToken';
@@ -557,15 +557,14 @@ export default function DriverDashboard({ navigation, route }) {
     }
   };
 
-  // Masked calling via Exotel — backend no longer sends patientPhone to
-  // drivers (see tripController.js:getTrips), so this places a masked
-  // call through POST /api/call/connect instead of a tel: link.
+  // Masked, recorded calling through Plivo — the backend never sends the
+  // customer's number to this app; it rings this phone and connects.
   const callCustomer = async () => {
     if (!activeTrip) return;
     setCallingCustomer(true);
     try {
-      await tripsApi.connectCall(activeTrip._id, 'driver');
-      Alert.alert('Calling Customer', 'Your phone will ring shortly — answer it to connect.');
+      const { data } = await callsApi.callCustomer(activeTrip._id);
+      Alert.alert('Calling Customer', data?.message || 'Your phone will ring shortly — answer it to connect.');
     } catch (err) {
       const msg = err?.response?.data?.message || "Couldn't connect the call. Please try again.";
       Alert.alert('Error', msg);

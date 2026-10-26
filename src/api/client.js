@@ -90,9 +90,19 @@ export const tripsApi = {
   complete: (id, data) => api.put(`/trips/${id}/complete`, data || {}),
   confirm: (id) => api.put(`/trips/${id}/confirm`),
   decline: (id) => api.put(`/trips/${id}/decline`),
-  // Masked calling via Exotel — backend no longer sends patientPhone to
-  // drivers, so this places the call server-side instead of a tel: link.
+  // Legacy Exotel masked call — kept as the fallback path; the app now
+  // calls through callsApi.callCustomer below.
   connectCall: (tripId, initiator) => api.post('/call/connect', { tripId, initiator }),
+};
+
+// Masked, recorded calling through Plivo. The app sends only the trip id —
+// the backend has the customer's number and never sends it here. Plivo
+// rings THIS phone from the company number (918065591088); answering it
+// connects to the customer, who also sees only the company number. Works
+// for a driver on their own active trip and for a fleet owner on their own
+// ambulances.
+export const callsApi = {
+  callCustomer: (tripId) => api.post('/calls/click-to-call', { tripId }),
 };
 
 // Driver SOS / emergency alert — fire-and-forget from DriverDashboard's SOS
