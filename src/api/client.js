@@ -90,9 +90,10 @@ export const tripsApi = {
   complete: (id, data) => api.put(`/trips/${id}/complete`, data || {}),
   confirm: (id) => api.put(`/trips/${id}/confirm`),
   decline: (id) => api.put(`/trips/${id}/decline`),
-  // Legacy Exotel masked call — kept as the fallback path; the app now
-  // calls through callsApi.callCustomer below.
-  connectCall: (tripId, initiator) => api.post('/call/connect', { tripId, initiator }),
+  // Driver -> customer masked call. The backend rings this phone from a
+  // company number (returned as callerIdDisplay) and bridges to the
+  // customer; the customer's real number never reaches the app.
+  callCustomer: (tripId) => api.post(`/trips/${tripId}/call`, { from: 'driver' }),
 };
 
 // Masked, recorded calling through Plivo. The app sends only the trip id —
