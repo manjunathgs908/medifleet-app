@@ -8,6 +8,7 @@ import { BatteryOptEnabled } from 'react-native-battery-optimization-check';
 import { useAuth } from '../../context/AuthContext';
 import { driverAuthApi, tripsApi, assignmentsApi, authApi, sosApi } from '../../api/client';
 import { getDeviceId, checkInternet } from '../../utils/device';
+import { sanitizeDialNumber, maskPhone } from '../../utils/callNumber';
 import { getRouteInfo } from '../../utils/routeUtils';
 import { getCachedPushToken, refreshPushToken } from '../../utils/pushToken';
 import { getCachedFcmToken, refreshFcmToken } from '../../utils/fcmToken';
@@ -557,11 +558,24 @@ export default function DriverDashboard({ navigation, route }) {
     }
   };
 
-  // Masked calling — POST /api/trips/:id/call { from: 'driver' }. The
-  // backend rings this phone from callerIdDisplay and bridges to the
-  // customer. Never dial or show the customer's real number here.
+  // Dial-pad masking — when the trip carries callNumber (a SaveLife masked
+  // number, re-read on every trip poll; null once the trip can't be
+  // called), the Call button just opens the dialler on it. The backend
+  // recognises the driver by their registered phone and bridges to the
+  // customer, so the customer's real number never reaches this app.
+  //
+  // callNumber null -> the previous masked callback below:
+  // POST /api/trips/:id/call { from: 'driver' } — the backend rings this
+  // phone from callerIdDisplay and bridges to the customer.
   const callCustomer = async () => {
     if (!activeTrip) return;
+    const dialNumber = sanitizeDialNumber(activeTrip.callNumber);
+    if (dialNumber) {
+      Linking.openURL(`tel:${dialNumber}`).catch(() => {
+        Alert.alert('Error', "Couldn't open the phone dialler. Please try again.");
+      });
+      return;
+    }
     setCallingCustomer(true);
     try {
       const { data } = await tripsApi.callCustomer(activeTrip._id);
@@ -922,6 +936,11 @@ export default function DriverDashboard({ navigation, route }) {
             {formatAmbulanceBadge(activeTrip.selectedType)} • {headingToPickup ? 'PICK UP' : 'DROP'}
           </Text>
           <Text style={styles.activeHeaderName}>{activeTrip.patientName}</Text>
+          {!!sanitizeDialNumber(activeTrip.callNumber) && (
+            <Text style={styles.callHint}>
+              {`Call from your registered number ${maskPhone(user?.phone)}`}
+            </Text>
+          )}
 
           <TouchableOpacity
             style={[styles.headerCallBtn, callingCustomer && styles.headerCallBtnDisabled]}
@@ -1285,6 +1304,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(20,184,166,0.35)',
   },
   headerCallBtnDisabled: { opacity: 0.6 },
+  callHint: { color: '#64748b', fontSize: 12, fontWeight: '600', marginTop: 4, textAlign: 'center' },
   headerCallIcon: { fontSize: 20 },
 
   // ── Active-trip bottom sheet — clean white card over the big map ──
